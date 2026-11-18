@@ -147,8 +147,9 @@
 "use strict";
 /* ============================================================
    BÉ CÁ CHẠY — Subway Surfers-style endless runner
-   Full 3D world, camera behind the character, track filling the
-   whole screen edge-to-edge. A real race, not a jog.
+   Full 3D world, camera behind the character, wide brown dirt
+   ground filling the whole screen edge-to-edge — no rails, bé cá
+   runs straight on the ground. A real race, not a jog.
    No screen shake anywhere (gentle motion only).
    ============================================================ */
 const canvas = document.getElementById('game');
@@ -156,24 +157,37 @@ const ctx = canvas.getContext('2d');
 const wrap = document.getElementById('wrap');
 
 /* ---------- tuning (Subway Surfers feel) ---------- */
-const SPEED_BASE = 85;      // was 55 — the race starts fast
-const SPEED_MAX  = 230;     // was 150
-const SPEED_RAMP = 2.2;     // was 1.15 — speed builds quickly
-const OBST_SCALE = 1.6;     // obstacles 1.6x — a bit bigger again, per An
-const CHAR_H_BASE = 185;    // character height, logical px (was 150) — big and prominent
-const LOW_BAR_H_BASE = 92.8;  // 58 * 1.6 — matches the drawn barrier height
-const OVER_GAP_BASE = 115.2;  // 72 * 1.6 — gap under the overhead bar
+const SPEED_BASE = 85;      // the race starts fast
+const SPEED_MAX  = 230;
+const SPEED_RAMP = 2.2;     // speed builds quickly
+const CHAR_H_BASE = 185;    // character height, logical px — big and prominent
 const SLIDE_H_BASE = 80;    // slide-pose sprite height — low, never squashed
-const SPAWN_Z = 230;        // spawn distance ahead (was 210 — a touch more warning at race speed)
+const SPAWN_Z = 230;        // spawn distance ahead
 const HIT_Z = 9;            // z window where collisions count
 const SLIDE_T = 0.75;       // slide duration (s)
+/* Obstacle sizes — the ground is wide brown dirt now (no rails), so the
+   obstacles are WIDE and spill across the ground and onto the sides.
+   Drawn size = collision size: what you see is what kills you.
+   - low fence: fixed low height (always jumpable); its 5.38 aspect makes it
+     span the whole ground — a full-width hurdle you must jump.
+   - overhead sign: 2.4 lanes wide, a big sign spanning the ground; the gap
+     under it is half its height, roomy enough to slide under.
+   - tall stack: capped at 1.3 lanes wide so a free lane always exists. */
+const LOW_H_BASE = 80;        // low fence height, local units
+const OVER_W_LANES = 2.4;     // overhead sign width, in lane units
+const TALL_W_LANES = 1.3;     // tall stack width, in lane units (fairness cap)
+const OVER_GAP_FRAC = 0.493;  // open space below the sign, fraction of its height
+const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units (forgiving vs the wide hood)
+const PLAYER_HW_SLIDE_BASE = 40; // slide-pose hitbox half-width — the pose is stretched out
+const BG_HORIZON_FRAC = 0.40; // where the dirt path vanishes in bg-3d.png (fraction of image height)
 
 /* ---------- responsive full-bleed layout ---------- */
 // Logical design height is 800 units; U scales it to the real viewport.
 // VW/VH are CSS pixels of the actual screen (e.g. 390x844 on An's iPhone).
 let VW = 480, VH = 800, U = 1;
 let CENTER_X = 240, HORIZON_Y = 250, PLAYER_Y = 692, LANE_HALF = 132;
-let CHAR_H = 185, JUMP_V = 540, JUMP_G = 1500, LOW_BAR_H = 81, OVER_GAP = 101;
+let CHAR_H = 185, JUMP_V = 540, JUMP_G = 1500;
+let PLAYER_HW = 28, PLAYER_HW_SLIDE = 40; // player hitbox half-widths, screen px
 
 function resize(w, h){
   let vw, vh;
@@ -186,12 +200,12 @@ function resize(w, h){
   CENTER_X = VW / 2;
   HORIZON_Y = VH * 0.3125;
   PLAYER_Y = VH * 0.865;
-  LANE_HALF = Math.min(VW * 0.29, VH * 0.175);
+  LANE_HALF = Math.min(VW * 0.32, VH * 0.185);
   CHAR_H = CHAR_H_BASE * U;
   JUMP_V = 540 * U;
   JUMP_G = 1500 * U;
-  LOW_BAR_H = LOW_BAR_H_BASE * U;
-  OVER_GAP = OVER_GAP_BASE * U;
+  PLAYER_HW = PLAYER_HW_BASE * U;
+  PLAYER_HW_SLIDE = PLAYER_HW_SLIDE_BASE * U;
   const dpr = (typeof window !== 'undefined' && window.devicePixelRatio)
     ? Math.min(2, window.devicePixelRatio) : 1;
   canvas.width = Math.max(1, Math.round(VW * dpr));
@@ -271,6 +285,56 @@ function scaleAt(z){ return 1 / (1 + z / 55); }
 function laneX(lane, z){ return CENTER_X + lane * LANE_HALF * scaleAt(z); }
 function groundY(z){ return HORIZON_Y + (PLAYER_Y - HORIZON_Y) * scaleAt(z); }
 
+/* ---------- obstacle sizes: drawn size = collision size ---------- */
+function obstImg(kind){
+  return kind === 'low' ? imgLow : kind === 'over' ? imgOver : imgTall;
+}
+function obstDims(kind){
+  // {w, h} in screen px at scale 1 — the size at the player's z.
+  // The low fence is height-driven (low and wide, always jumpable);
+  // the sign and the stack are width-driven (wide, spilling across the ground).
+  const img = obstImg(kind);
+  const aspect = imgReady(img) ? img.naturalWidth / img.naturalHeight : 1;
+  if (kind === 'low') {
+    const h = LOW_H_BASE * U;
+    return { w: h * aspect, h };
+  }
+  if (kind === 'over') {
+    const w = OVER_W_LANES * LANE_HALF;
+    return { w, h: w / aspect };
+  }
+  const w = TALL_W_LANES * LANE_HALF;
+  return { w, h: w / aspect };
+}
+function lowBarH(){ return obstDims('low').h; }            // height the jump must clear
+function overGap(){ return obstDims('over').h * OVER_GAP_FRAC; } // room under the sign
+
+/* ---------- spawn fairness ---------- */
+// A row is fair if some lane lets the player through: stand (no overlap),
+// jump (overlap only with low fences), or slide (overlap only with overhead
+// signs). A tall stack in the way is always fatal, and overlapping a low
+// fence AND a sign at once is fatal (you cannot jump and slide together).
+function lanePassable(lane, row){
+  const ways = [
+    { pw: PLAYER_HW,       kinds: [] },       // stand: nothing may touch the player
+    { pw: PLAYER_HW,       kinds: ['low'] },  // jump: only low fences may touch
+    { pw: PLAYER_HW_SLIDE, kinds: ['over'] }, // slide: only signs may touch
+  ];
+  for (const way of ways) {
+    let ok = true;
+    for (const o of row) {
+      const d = obstDims(o.kind);
+      const dx = Math.abs(lane - o.lane) * LANE_HALF;
+      if (dx < d.w / 2 + way.pw && !way.kinds.includes(o.kind)) { ok = false; break; }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+function rowIsFair(row){
+  return [-1, 0, 1].some(l => lanePassable(l, row));
+}
+
 /* ---------- controls ---------- */
 function moveLeft(){ if (S.mode !== 'playing') return; if (S.lane > -1) S.lane--; }
 function moveRight(){ if (S.mode !== 'playing') return; if (S.lane < 1) S.lane++; }
@@ -332,50 +396,67 @@ function spawnPattern(){
   S.patterns++;
   const r = Math.random();
   const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
+  const row = []; // obstacles in this row, for the fairness check below
+  const addObst = (kind, lane, z) => {
+    const e = { kind, lane, z: z === undefined ? SPAWN_Z : z };
+    S.entities.push(e); row.push(e); return e;
+  };
+  const addCoin = (lane, z, h) => S.entities.push({ kind:'coin', lane, z, h: h || 0 });
   if (r < 0.26) {
     // coin line on one lane
     const L = lanes[0];
-    for (let i = 0; i < 5; i++) S.entities.push({ kind:'coin', lane:L, z:SPAWN_Z + i*12, h:0 });
+    for (let i = 0; i < 5; i++) addCoin(L, SPAWN_Z + i*12, 0);
   } else if (r < 0.40) {
-    // low barrier on one lane + coins on another
-    S.entities.push({ kind:'low', lane:lanes[0], z:SPAWN_Z });
-    for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[1], z:SPAWN_Z + i*12, h:0 });
+    // low fence on one lane + coins on another — the fence spans the ground,
+    // so the player jumps it wherever they are
+    addObst('low', lanes[0]);
+    for (let i = 0; i < 4; i++) addCoin(lanes[1], SPAWN_Z + i*12, 0);
   } else if (r < 0.52) {
-    // overhead bar on one lane + coins on another
-    S.entities.push({ kind:'over', lane:lanes[0], z:SPAWN_Z });
-    for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[1], z:SPAWN_Z + i*12, h:0 });
+    // overhead sign on one lane + coins on another — slide under the sign
+    addObst('over', lanes[0]);
+    for (let i = 0; i < 4; i++) addCoin(lanes[1], SPAWN_Z + i*12, 0);
   } else if (r < 0.64) {
-    // tall block on one lane, low barrier on another, third lane free
-    S.entities.push({ kind:'tall', lane:lanes[0], z:SPAWN_Z });
-    S.entities.push({ kind:'low',  lane:lanes[1], z:SPAWN_Z });
+    // tall stack on one lane, low fence on another, third lane free
+    addObst('tall', lanes[0]);
+    addObst('low', lanes[1]);
   } else if (r < 0.74) {
-    // two tall blocks, one free lane with coins
-    S.entities.push({ kind:'tall', lane:lanes[0], z:SPAWN_Z });
-    S.entities.push({ kind:'tall', lane:lanes[1], z:SPAWN_Z });
-    for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[2], z:SPAWN_Z + 6 + i*12, h:0 });
+    // two tall stacks, one free lane with coins
+    addObst('tall', lanes[0]);
+    addObst('tall', lanes[1]);
+    for (let i = 0; i < 4; i++) addCoin(lanes[2], SPAWN_Z + 6 + i*12, 0);
   } else if (r < 0.84) {
-    // single tall block + coins on another lane
+    // single tall stack + coins on another lane
     // (double-low and triple rows removed — An wants the track sparser,
     //  with clear breathing room between obstacle groups)
-    S.entities.push({ kind:'tall', lane:lanes[0], z:SPAWN_Z });
-    for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[1], z:SPAWN_Z + i*12, h:0 });
+    addObst('tall', lanes[0]);
+    for (let i = 0; i < 4; i++) addCoin(lanes[1], SPAWN_Z + i*12, 0);
   } else {
     // coin arc: jump for the middle coin
     const L = lanes[0];
-    S.entities.push({ kind:'coin', lane:L, z:SPAWN_Z,      h:0  });
-    S.entities.push({ kind:'coin', lane:L, z:SPAWN_Z + 12, h:55 });
-    S.entities.push({ kind:'coin', lane:L, z:SPAWN_Z + 24, h:0  });
-    S.entities.push({ kind:'low',  lane:lanes[1], z:SPAWN_Z + 6 });
+    addCoin(L, SPAWN_Z, 0);
+    addCoin(L, SPAWN_Z + 12, 55);
+    addCoin(L, SPAWN_Z + 24, 0);
+    addObst('low', lanes[1], SPAWN_Z + 6);
   }
-  // (no staggered follow-up row any more — An wants the track sparser)
-  // side decoration (palm / umbrella / hut), more often than before
-  if (Math.random() < 0.9) {
-    S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 20,
-                   kind: ['palm','umbrella','hut'][Math.floor(Math.random()*3)] });
-    if (Math.random() < 0.25) {
-      S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 60,
-                     kind: ['palm','umbrella','hut'][Math.floor(Math.random()*3)] });
+  // Fairness safety net: a wide obstacle can intrude into a neighbouring
+  // lane, so never ship a row with no way through. If a row is impossible,
+  // drop its widest obstacle and re-check.
+  while (row.length > 0 && !rowIsFair(row)) {
+    let widest = 0;
+    for (let i = 1; i < row.length; i++) {
+      if (obstDims(row[i].kind).w > obstDims(row[widest].kind).w) widest = i;
     }
+    const dropped = row.splice(widest, 1)[0];
+    const idx = S.entities.indexOf(dropped);
+    if (idx >= 0) S.entities.splice(idx, 1);
+  }
+  // side decoration (palm / umbrella / hut) — a little denser now so the
+  // sides of the wide dirt ground do not feel empty
+  S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 20,
+                 kind: ['palm','umbrella','hut'][Math.floor(Math.random()*3)] });
+  if (Math.random() < 0.45) {
+    S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 60,
+                   kind: ['palm','umbrella','hut'][Math.floor(Math.random()*3)] });
   }
 }
 
@@ -463,15 +544,25 @@ function update(dt){
 
   // collisions / pickups in the hit zone
   const pH = jumpHeight();
+  const pw = isSliding() ? PLAYER_HW_SLIDE : PLAYER_HW;
   for (const e of S.entities) {
     if (e.taken || e.passed) continue;
     if (Math.abs(e.z) > HIT_Z) continue;
-    if (e.lane !== S.lane) { if (e.z < -HIT_Z) e.passed = true; continue; }
     if (e.kind === 'coin') {
+      if (e.lane !== S.lane) continue;
       const coinH = (e.h || 0) * U;
       if (Math.abs(pH - coinH) < 46 * U) { e.taken = true; S.coins++; updateHUD(); }
-    } else if (e.kind === 'low') {
-      if (pH < LOW_BAR_H - 6 * U) { gameOver(); return; }
+      continue;
+    }
+    // Obstacle: horizontal overlap from the DRAWN width — what you see is
+    // what kills you. A wide fence or sign can intrude into a neighbouring
+    // lane, so this is a real x-overlap check, not a lane-equality check.
+    const d = obstDims(e.kind);
+    const hw = (d.w / 2) * scaleAt(Math.max(0, e.z));
+    const overlap = Math.abs(S.charX - laneX(e.lane, e.z)) < hw + pw;
+    if (!overlap) continue; // clear of it this frame; re-checked next frame
+    if (e.kind === 'low') {
+      if (pH < lowBarH() - 6 * U) { gameOver(); return; }
       e.passed = true;
     } else if (e.kind === 'over') {
       if (!isSliding()) { gameOver(); return; }
@@ -485,11 +576,12 @@ function update(dt){
 
 /* ---------- drawing ---------- */
 function drawBackground(){
-  // 3D seaside boardwalk backdrop, drawn cover-style to fill the whole
-  // screen edge-to-edge, with the image's horizon aligned to HORIZON_Y.
+  // Wide brown dirt ground (no rails — bé cá runs straight on the ground),
+  // drawn cover-style to fill the whole screen edge-to-edge, with the dirt
+  // path's vanishing point aligned to HORIZON_Y.
   if (imgReady(bgImg)) {
     const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight; // 800x1600
-    const horizonInImg = ih / 3; // horizon ~1/3 down the image
+    const horizonInImg = ih * BG_HORIZON_FRAC; // dirt path vanishes here
     const s = Math.max(VW / iw, VH / ih, (VH - HORIZON_Y) / (ih - horizonInImg));
     const dw = iw * s, dh = ih * s;
     const dx = (VW - dw) / 2;
@@ -534,18 +626,17 @@ function drawCoin(e){
 function drawObstacle(e){
   const s = scaleAt(e.z);
   if (s < 0.1) return;
-  const img = e.kind === 'low' ? imgLow : e.kind === 'over' ? imgOver : imgTall;
+  const img = obstImg(e.kind);
   if (!imgReady(img)) return;
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z);
-  // local size (at s=1), matched to each 3D image's aspect ratio —
-  // all obstacles 1.6x bigger than the original
-  const h = (e.kind === 'low' ? 58 : e.kind === 'over' ? 188 : 183) * OBST_SCALE * U;
-  const w = h * (img.naturalWidth / img.naturalHeight);
+  // Wide obstacles spilling across the brown ground — the drawn size is the
+  // same size the collision check uses (see obstDims).
+  const d = obstDims(e.kind);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
-  ctx.drawImage(img, -w / 2, -h, w, h);
+  ctx.drawImage(img, -d.w / 2, -d.h, d.w, d.h);
   ctx.restore();
 }
 function drawCharacter(){
@@ -657,9 +748,11 @@ window.__becaRun = {
   laneX, groundY, scaleAt,
   runFrame: runFrameIndex,
   speedNorm, speedLines: speedLineState,
+  obstDims, lanePassable, rowIsFair, lowBarH, overGap,
   layout(){ return { VW, VH, U, CENTER_X, HORIZON_Y, PLAYER_Y, LANE_HALF,
-                     CHAR_H, LOW_BAR_H, OVER_GAP, SPEED_BASE, SPEED_MAX, OBST_SCALE,
-                     SLIDE_H: SLIDE_H_BASE * U }; },
+                     CHAR_H, LOW_BAR_H: lowBarH(), OVER_GAP: overGap(),
+                     SPEED_BASE, SPEED_MAX, SLIDE_H: SLIDE_H_BASE * U,
+                     PLAYER_HW, PLAYER_HW_SLIDE }; },
   resize,
   assets(){
     return {
