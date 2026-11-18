@@ -23,7 +23,7 @@
     background:#8fd3f4;
   }
   canvas { display:block; width:100%; height:100%; }
-  /* ---------- HUD ---------- */
+  /* ---------- HUD: score + multiplier top-right (like the video), coins below ---------- */
   #hud {
     position:absolute; top:0; left:0; right:0;
     display:flex; justify-content:space-between; align-items:flex-start;
@@ -39,7 +39,11 @@
   }
   #hud .score { font-size:20px; }
   #hud .score small { display:block; font-size:11px; opacity:.9; letter-spacing:1px; }
-  #hud .stars { font-size:18px; }
+  #hud .score #mult { color:#ffe082; font-size:18px; margin-left:6px; }
+  #hud .right { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+  #hud .coins { font-size:18px; }
+  #hud .coins img { height:20px; width:auto; vertical-align:-4px; margin-right:2px; }
+  #hud .best { font-size:14px; opacity:.95; }
   /* ---------- overlays ---------- */
   .overlay {
     position:absolute; inset:0; z-index:10;
@@ -117,21 +121,25 @@
   <canvas id="game" width="480" height="800"></canvas>
 
   <div id="hud" class="hidden">
-    <div class="pill score"><small>ĐIỂM · SCORE</small><span id="score">0</span></div>
-    <div class="pill stars">★ <span id="stars">0</span></div>
+    <div class="pill best">KỶ LỤC · <span id="bestHud">0</span></div>
+    <div class="right">
+      <div class="pill score"><small>ĐIỂM · SCORE</small><span id="score">0</span><span id="mult">x1</span></div>
+      <div class="pill coins"><img src="art/coin-3d.png" alt="xu"> <span id="coins">0</span></div>
+    </div>
   </div>
 
-  <div id="hint" class="hidden">Vuốt ◀ ▶ đổi làn · Vuốt ▲ / chạm để nhảy qua rào · Lượm ★ sao vàng!</div>
+  <div id="hint" class="hidden">Vuốt ◀ ▶ đổi làn · ▲ nhảy lên tàu · ▼ trượt dưới rào · Lượm xu vàng!</div>
 
   <div id="menu" class="overlay">
     <div class="title">BÉ CÁ<br>CHẠY</div>
-    <div class="subtitle">Sói đang rình phía sau — chạy nhanh, lượm sao vàng, nhảy qua rào!</div>
-    <div class="subtitle-en">A wolf is on your tail — run fast, grab gold stars, jump the barriers!</div>
+    <div class="subtitle">Sói đuổi ngay sau lưng — nhảy lên tàu, trượt dưới rào, lượm xu vàng!</div>
+    <div class="subtitle-en">The wolf is right behind you — jump on trains, slide under bars, grab gold coins!</div>
     <img class="hero" src="art/beca-run-front.png" alt="Bé cá">
     <div class="howto">
       <span class="k">◀ ▶</span> hoặc vuốt ngang: đổi làn<br>
-      <span class="k">▲</span> / chạm màn hình: nhảy qua rào chắn<br>
-      Lượm <b>★ sao vàng</b> để cộng điểm!<br>
+      <span class="k">▲</span> / chạm màn hình: nhảy qua rào, nhảy lên nóc tàu<br>
+      <span class="k">▼</span> / vuốt xuống: trượt dưới rào cao<br>
+      Lượm <b>xu vàng</b> để cộng điểm!<br>
       7 giây đầu sói đuổi ngay sau lưng — đừng để bị bắt!
     </div>
     <button class="btn" id="startBtn">CHẠY THÔI! ▶</button>
@@ -148,7 +156,7 @@
     <div class="subtitle-en">The wolf caught her!</div>
     <div class="stats">
       Điểm · Score: <b id="finalScore">0</b><br>
-      Sao · Stars: <b id="finalStars">0</b><br>
+      Xu · Coins: <b id="finalCoins">0</b><br>
       Quãng đường: <b id="finalDist">0</b> m
     </div>
     <div class="newbest hidden" id="newBest">🎉 Kỷ lục mới! New best!</div>
@@ -160,39 +168,43 @@
 <script>
 "use strict";
 /* ============================================================
-   BÉ CÁ CHẠY — v10: the wolf runs DIRECTLY behind her
-   Subway Surfers-style endless runner, 3 lanes, camera behind
-   the character, low-poly beach ground filling the whole screen
-   edge-to-edge. A real race, not a jog.
-   - Intro cutscene: bé cá steps on the sleeping wolf's tail,
-     the wolf wakes up angry — then the chase is on.
-   - Wolf chase: a real 4-frame run cycle (wolf-run1..4.png, rear
-     view, all 4 legs articulating) runs DIRECTLY BEHIND bé cá —
-     same x centre (0 offset), same lane, a single vertical column
-     (hàng dọc) along the running direction: bé cá in front, a
-     ~1 cm gap from her back/tail, then the wolf right behind her.
-     Never offset left/right, never beside her. It kicks up
-     smoke/dust from its paws for the first ~7 s of every run,
-     then gives up and fades away.
-   - Game over: the wolf CATCHES her — crying bé cá on screen.
-   - ONLY obstacle: the low 3D box-beam barrier (1.2 lanes wide).
-     Dodge by switching lanes OR jump over it. No signs, no ramps,
-     no sliding — those mechanics are gone entirely.
-   - Gold stars: about HALF bé cá's height (95 local units),
-     plain modest gold — no glow, no glint, no pulse. Stars come
-     as ONE neat line of exactly 4 in a single lane, and only in
-     ~40% of patterns — not too many.
-   - Turns: a big turn arrow + caption only — the MAP is stable
-     and never moves. No ground streaks, no background shift, no
-     running path: the whole ground is uniform sand, because
-     everything around is sand. The sense of movement comes only
-     from the obstacles and stars approaching and bé cá's run.
-     Rope swings: grab a rope over a gap and swing across
-     (automatic, always succeeds).
-   - Higher jump (~1.34x v8 apex), faster lane switching, new
-     uniform-sand low-poly beach bg (horizon re-measured from the
-     new art: sea meets sand at 0.45 — the ground is SAND now,
-     with no path strip at all).
+   BÉ CÁ CHẠY — v11: Subway Surfers in a TRAIN YARD
+   Rebuilt from v10 (same overall structure: perspective helpers,
+   spawn/fairness, cutscene, HUD, test hook window.__becaRun).
+   - Setting: a railway. The background (bg-3d.png) is the
+     environment only (sky, wires, trees, walls, gravel bed).
+     The 3 TRAIN TRACKS are drawn procedurally in code on the
+     gravel: steel rails converging to the vanishing point and
+     wooden sleepers as horizontal ticks bunching toward the
+     horizon — aligned exactly with the 3 lane positions the
+     obstacles use. The ground is gravel, not sand. The
+     background is FIXED (stable, no panning).
+   - THE WOLF IS THE INSPECTOR, DIRECTLY BEHIND — the v10 wolf
+     was drawn ABOVE bé cá (further away, smaller, hidden behind
+     her), which read as running "beside" her. Fixed: bé cá moved
+     UP the screen (PLAYER_Y 0.865 -> 0.69*VH, CHAR_H 185 -> 150,
+     small like Jake) and the wolf is drawn BELOW her on screen
+     (closer to the camera, LARGER — content height 195 local,
+     1.3x her height, paws near the bottom ~0.97*VH), directly
+     behind her in the same lane (same x centre, 0 offset), a
+     ~1 cm gap (30 local) from her feet/tail to the wolf's head.
+     It is CLEARLY VISIBLE at the bottom, running on all 4 legs,
+     kicking up smoke/dust, for the first ~7 s, then it fades.
+   - Obstacles: TRAINS (jump onto the roof and run along it, or
+     switch lanes) + LOW barriers (jump over) + OVERHEAD barriers
+     (slide under). The rope swing is GONE and the turns are GONE
+     (a railway is straight).
+   - Slide/roll is BACK: swipe down / ArrowDown / 's', ~0.8 s,
+     collision height ~70 local, short cooldown, no jumping
+     mid-slide.
+   - Collectible: GOLD COINS (not stars) — lines on the ground,
+     jump arcs over low barriers, and lines along train roofs.
+     HUD: score + multiplier top-right (x1, +1 every 500 m,
+     cap x60), coins below it. No power-ups, no power-up meter.
+   - Cutscene (4 phases, skippable), crying game-over, VI+EN,
+     NO screen shake, iPhone button fix (touch handlers return
+     early on buttons), full-screen edge-to-edge, best score in
+     localStorage, smooth lane switching, fairness safety net.
    No screen shake anywhere (gentle motion only).
    ============================================================ */
 const canvas = document.getElementById('game');
@@ -203,77 +215,116 @@ const wrap = document.getElementById('wrap');
 const SPEED_BASE = 85;      // the race starts fast
 const SPEED_MAX  = 230;
 const SPEED_RAMP = 2.2;     // speed builds quickly
-const CHAR_H_BASE = 185;    // character height, logical px — big and prominent
-const SPAWN_Z = 230;        // spawn distance ahead
+const CHAR_H_BASE = 150;    // character height, logical px — small like Jake
+const SPAWN_Z = 300;        // spawn distance ahead (1.3 s of warning at max speed — a jump commits 1.02 s, so the player must see the row they will land into before jumping)
 const HIT_Z = 9;            // z window where collisions / pickups count
-const LANE_LERP = 22;       // lane-change smoothing rate (was 10 — laggy)
-/* The ONLY obstacle: a low 3D box-beam barrier, 1.2 lanes wide, so a
-   lane switch always dodges it — and it is low enough to jump over.
-   Drawn size = collision size: what you see is what kills you.
-   barrier-low-3d.png is 931x320 (aspect 2.909), so a 1.2-lane-wide
-   beam is ~49 local units tall on iPhone (v8 was ~28) — a proper
-   hurdle, still well below the jump apex. */
-const LOW_W_LANES = 1.2;      // barrier width, in lane units
-const LOW_W_LANES_MAX = 1.3;  // (kept in the fairness cap, see spawnPattern)
-/* Gold stars: about HALF bé cá's height (95 local units) — modest,
-   plain gold, no glow. Pickup window scaled down proportionally
-   from v8's 100 (for a 185-unit star) to 50. */
-const STAR_H_BASE = 95;       // star height, local units — ~half character height
-const STAR_PICKUP_BASE = 50;  // star pickup window, local units (was 100 for the big star)
+const LANE_LERP = 22;       // lane-change smoothing rate
+const PLAYER_Y_FRAC = 0.69; // bé cá's feet: up the screen, ahead of the wolf
+/* The low barrier: 1.2 lanes wide, height from its real aspect
+   (931x320 = 2.909) — ~49 local units tall, a proper hurdle,
+   well below the jump apex. Drawn size = collision size. */
+const LOW_W_LANES = 1.2;
+/* The overhead barrier: 1.3 lanes wide, height from its real aspect
+   (600x420 = 1.4286) — ~108 local tall. The red-white bar sits in
+   the top ~20% of the sprite (measured with PIL: bar rows y 10-85
+   of 420), so the CLEAR GAP underneath is ~0.795 of the height,
+   ~85 local units — standing (150) or jumping into it crashes,
+   sliding (collision height 70) passes cleanly. */
+const OVER_W_LANES = 1.3;
+const OVER_GAP_FRAC = 0.795;
+/* Trains: 0.9 lanes wide, rear-face art 400x600 (aspect 2:3), so
+   the roof is ~160 local units high — comfortably below the jump
+   apex (195 local, margin ~35). Length 150-250 z units. */
+const TRAIN_W_LANES = 0.9;
+const TRAIN_ASPECT = 1.5;   // rear-face art height / width (600/400)
+const TRAIN_LEN_MIN = 150;
+const TRAIN_LEN_MAX = 250;
+/* Gold coins: ~55 local tall, plain gold, no glow. Pickup window
+   55 local (generous, like the video's coin arcs). */
+const COIN_H_BASE = 55;
+const COIN_PICKUP_BASE = 55;
+const COIN_LINE_N = 5;
+const COIN_LINE_STEP = 12;
+/* Jump arc over a low barrier: the coins sit where a well-timed
+   jump actually is (peak ~190 local at the barrier), so a jump
+   from ~50 units out collects most of the arc. */
+const COIN_ARC_Z = [-24, -12, 0, 12, 24];
+const COIN_ARC_H = [140, 175, 190, 175, 140];
 const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units
-/* BG_HORIZON_FRAC re-measured from the NEW v10 bg-3d.png (800x1600,
-   low-poly beach, uniform sand, no path strip) — measured with PIL
-   across 11 columns: the turquoise sea ends and the sand begins at
-   y≈720/1600 = 0.45 on almost every column (median 0.449). 0.45 puts
-   the horizon on SAND across the whole width, so distant objects sit
-   on the beach, never on the sea. (The right columns read 0.31 where
-   a sandy beach strip meets the water at the horizon — the median
-   0.45 is the right value.) The old 0.39 belonged to the old forest art. */
-const BG_HORIZON_FRAC = 0.45;
-/* Jump: v8 apex was 145.8 local units (V=661, G=1500). 1.34x apex =
-   ~195 local units, so V = sqrt(2*G*195) ≈ 765 with G unchanged —
-   same gravity feel, clearly higher, and comfortably above the
-   taller ~49-unit barriers. */
+/* BG_HORIZON_FRAC re-measured from the NEW v11 bg-3d.png (800x1600,
+   railway: sky, wires, trees, walls, gravel bed) with PIL: across
+   the centre band (x 300-500) the brown gravel bed first appears
+   at y = 841-845 / 1600 = 0.526 (the sky above it is blue down to
+   y ~840). 0.526 puts the horizon on the gravel across the whole
+   centre, so distant objects sit on the track bed. */
+const BG_HORIZON_FRAC = 0.526;
+/* Jump: apex = V^2 / (2G) = 765^2 / 3000 = ~195 local units —
+   clears the ~49-unit low barrier with a huge margin and reaches
+   the ~160-unit train roof with ~35 units to spare. */
 const JUMP_V_BASE = 765;
 const JUMP_G_BASE = 1500;
-const OLD_JUMP_APEX = 145.8;  // v8 apex, local units — for the test hook
 /* Wolf chase geometry (local units; U scales them to the screen).
    The wolf runs DIRECTLY BEHIND bé cá — one vertical column
    (hàng dọc) along the running direction, NEVER a horizontal row
    beside her: its horizontal centre is EXACTLY bé cá's centre
-   (WOLF_X_OFF = 0, same x, same lane), positioned just behind her
-   on screen (slightly higher / further back on the ground plane,
-   a little smaller). The gap is ~1 cm on screen (WOLF_FEET_LIFT
-   = 30 local units), measured from bé cá's BACK and TAIL to the
-   wolf's nose — the wolf's nose sits 1 cm behind the tip of her
-   tail/back. It is drawn BEFORE her, so she occludes its middle:
-   it is behind her. */
-const WOLF_W = 140;           // wolf display width, local units (fixed for all 4 frames)
-const WOLF_FEET_LIFT = 30;    // the chase gap, ground plane (~1 cm on iPhone), from her back/tail to its nose
-const WOLF_X_OFF = 0;         // wolf centre x relative to bé cá — EXACTLY 0: directly behind her, same x
+   (0 offset, same x, same lane). But now it is BELOW her on
+   screen (closer to the camera, LARGER): content height 195
+   local = 1.3x her 150, head ~1 cm (30 local) below her feet,
+   paws at ~0.97*VH near the bottom of the screen. The wolf is
+   drawn BEFORE her, but it does NOT hide behind her any more —
+   there is a real gap between her feet and its head, so the
+   whole wolf is visible at the bottom of the screen. */
+const WOLF_CONTENT_H_BASE = 195; // wolf body height, local units (1.3x bé cá)
+const WOLF_GAP_LOCAL = 30;       // the chase gap, ground plane (~1 cm), her feet/tail to its head
+const WOLF_X_OFF = 0;            // wolf centre x relative to bé cá — EXACTLY 0
+/* Wolf sprite content insets, measured with PIL from the art
+   (alpha bbox of each 850x900 frame, as fractions of height):
+   frame: top inset / bottom inset / content height. The frames
+   are drawn at a FIXED CONTENT height with content feet anchored,
+   so the body bulk stays steady and the gap stays exact. */
+const WOLF_FRAME_META = [
+  { top:  63 / 900, bot: 64 / 900, h: 773 / 900 }, // frame 1
+  { top: 111 / 900, bot: 89 / 900, h: 700 / 900 }, // frame 2
+  { top:  86 / 900, bot: 89 / 900, h: 725 / 900 }, // frame 3
+  { top: 123 / 900, bot: 77 / 900, h: 700 / 900 }, // frame 4
+];
 /* Wolf smoke: dust puffs kicked up by the paws while chasing. */
 const SMOKE_RATE = 40;        // puffs spawned per second during the chase
 const SMOKE_MAX = 90;         // particle cap
 /* Wolf chase: visible for the first ~7 s of each run, fading out
    over the last second. */
 const WOLF_CHASE_T = 7;
+/* Slide/roll: ~0.8 s, then a short cooldown so it cannot be spammed. */
+const SLIDE_DUR = 0.8;
+const SLIDE_CD = 0.5;
+const SLIDE_H_BASE = 70;      // collision height while sliding, local units
+/* Slide pose art (566x400): the body fills y 17-382 of 400, i.e.
+   0.9125 of the sprite height — so the drawn height that gives a
+   70-local body is 70 / 0.9125. */
+const SLIDE_CONTENT_FRAC = 0.9125;
+/* Score multiplier: x1, +1 every 500 m, cap x60 (like the video). */
+const MULT_EVERY_M = 500;
+const MULT_CAP = 60;
 /* Cutscene: ~3.6 s total, skippable by tapping. */
 const CUT_DUR = 3.6;
 const CUT_A = 1.2, CUT_B = 1.9, CUT_C = 2.7; // phase boundaries (s)
-/* Turns: the view centre eases sideways by 17% of screen width. */
-const TURN_SHIFT_FRAC = 0.17;
-const TURN_DUR = 2.4;        // seconds a bend lasts
-/* Rope swing: automatic, 0.9 s from grab to landing. */
-const SWING_DUR = 0.9;
+/* Train roof / side colours per train colour. */
+const TRAIN_COLORS = {
+  red:    { roof: '#7e2a20', side: '#9c2f22' },
+  orange: { roof: '#8f4d14', side: '#b25e1a' },
+  blue:   { roof: '#1d4e7a', side: '#245f92' },
+};
+const TRAIN_COLOR_LIST = ['red', 'orange', 'blue'];
 
 /* ---------- responsive full-bleed layout ---------- */
 // Logical design height is 800 units; U scales it to the real viewport.
 // VW/VH are CSS pixels of the actual screen (e.g. 390x844 on An's iPhone).
 let VW = 480, VH = 800, U = 1;
-let CENTER_X = 240, HORIZON_Y = 250, PLAYER_Y = 692, LANE_HALF = 132;
-let CHAR_H = 185, JUMP_V = 661, JUMP_G = 1500;
+let CENTER_X = 240, HORIZON_Y = 250, PLAYER_Y = 552, LANE_HALF = 132;
+let CHAR_H = 150, JUMP_V = 765, JUMP_G = 1500;
 let PLAYER_HW = 28;
-let TURN_SHIFT = 80; // px the view centre shifts during a bend
+let WOLF_FEET_Y = 777;   // wolf content feet (paws), px — near the bottom
+let SLIDE_DRAW_H = 77;   // slide-pose drawn height, px
 
 function resize(w, h){
   let vw, vh;
@@ -285,13 +336,15 @@ function resize(w, h){
   VW = vw; VH = vh; U = VH / 800;
   CENTER_X = VW / 2;
   HORIZON_Y = VH * 0.3125;
-  PLAYER_Y = VH * 0.865;
+  PLAYER_Y = VH * PLAYER_Y_FRAC;
   LANE_HALF = Math.min(VW * 0.32, VH * 0.185);
   CHAR_H = CHAR_H_BASE * U;
   JUMP_V = JUMP_V_BASE * U;
   JUMP_G = JUMP_G_BASE * U;
   PLAYER_HW = PLAYER_HW_BASE * U;
-  TURN_SHIFT = VW * TURN_SHIFT_FRAC;
+  // Wolf paws: bé cá's feet + 1 cm gap + wolf body height.
+  WOLF_FEET_Y = PLAYER_Y + (WOLF_GAP_LOCAL + WOLF_CONTENT_H_BASE) * U;
+  SLIDE_DRAW_H = (SLIDE_H_BASE / SLIDE_CONTENT_FRAC) * U;
   const dpr = (typeof window !== 'undefined' && window.devicePixelRatio)
     ? Math.min(2, window.devicePixelRatio) : 1;
   canvas.width = Math.max(1, Math.round(VW * dpr));
@@ -303,7 +356,8 @@ if (typeof window !== 'undefined' && window.addEventListener)
   window.addEventListener('resize', function(){ resize(); });
 
 const $ = id => document.getElementById(id);
-const hudEl=$('hud'), scoreEl=$('score'), starsEl=$('stars'),
+const hudEl=$('hud'), scoreEl=$('score'), multEl=$('mult'), coinsEl=$('coins'),
+      bestHudEl=$('bestHud'),
       menuEl=$('menu'), overEl=$('gameover'), hintEl=$('hint'),
       bestMenuEl=$('bestMenu'), bestOverEl=$('bestOver');
 
@@ -311,21 +365,25 @@ const hudEl=$('hud'), scoreEl=$('score'), starsEl=$('stars'),
 function loadImg(src){ const img = new Image(); img.src = src; return img; }
 function imgReady(img){ return img.complete && img.naturalWidth > 0; }
 const bgImg = loadImg('art/bg-3d.png');
-const imgStar = loadImg('art/star-3d.png');
+const imgCoin = loadImg('art/coin-3d.png');
 const imgLow = loadImg('art/barrier-low-3d.png');
+const imgOver = loadImg('art/barrier-over-3d.png');
+/* trains: the REAR FACE of a train car (2 windows, centre door,
+   lights, stripe) — the face the player sees when a train is ahead */
+const trainImgs = {
+  red: loadImg('art/train-red.png'),
+  orange: loadImg('art/train-orange.png'),
+  blue: loadImg('art/train-blue.png'),
+};
 /* the wolf: a real 4-frame run cycle, REAR view (facing away from
-   the camera, forward toward bé cá's back), all 4 legs articulating.
-   The frames have different widths (653/913/664/830 px) — they are
-   drawn at a FIXED display width (WOLF_W) with each frame's own
-   aspect, feet anchored, so the wolf's body bulk stays steady
-   (torso width varies only ~16% between frames) and the height
-   variation reads as the gallop's stretch. The old single-frame
-   side-view wolf-run.png is NOT loaded any more. */
+   the camera, forward toward bé cá), all 4 legs articulating.
+   Frames are drawn at a FIXED CONTENT height with content feet
+   anchored (see WOLF_FRAME_META), so the body bulk stays steady. */
 const wolfFrames = [
-  loadImg('art/wolf-run1.png'),  // frame 1: gathered
-  loadImg('art/wolf-run2.png'),  // frame 2: extended (widest, 913 px)
-  loadImg('art/wolf-run3.png'),  // frame 3: gathered, other phase
-  loadImg('art/wolf-run4.png'),  // frame 4: extended
+  loadImg('art/wolf-run1.png'),
+  loadImg('art/wolf-run2.png'),
+  loadImg('art/wolf-run3.png'),
+  loadImg('art/wolf-run4.png'),
 ];
 /* sitting/sleeping wolf (cutscene) */
 const imgWolfSit = loadImg('art/wolf-sit.png');
@@ -340,6 +398,8 @@ const runFrames = [
   loadImg('art/run-frame4.png'),      // frame 4: legs together, opposite phase
 ];
 const spriteFront = loadImg('art/beca-run-front.png');
+/* slide/roll pose: low, feet-first, body horizontal — NOT squashed */
+const imgSlide = loadImg('art/slide-pose.png');
 
 /* ---------- state ---------- */
 const S = {
@@ -349,25 +409,31 @@ const S = {
   speed: SPEED_BASE,      // units / s
   distance: 0,            // units travelled
   score: 0,
-  stars: 0,
+  coins: 0,
+  mult: 1,                // score multiplier (x1 .. x60)
   best: 0,
   lane: 0,                // -1, 0, 1
   charX: CENTER_X,        // smoothed screen x
   jumpT: -1,              // jump timer (<0 = not jumping)
-  entities: [],           // {kind:'low'|'star'|'rope', lane, z, h, taken, passed}
+  jumpBase: 0,            // feet height the jump started from (roof height when jumping off a train)
+  slideT: -1,             // slide timer (<0 = not sliding)
+  slideCd: 0,             // slide cooldown (s)
+  onTrain: null,          // train entity the player is riding on the roof of
+  entities: [],           // {kind:'low'|'over'|'train'|'coin', lane, z, h, len, color, taken, passed}
   spawnAcc: 0,            // distance since last pattern
   nextGap: 58,
   patterns: 0,            // patterns spawned (test hook)
+  prevPassable: [],       // passable lanes of the previous row (sequential fairness)
+  prevRowOverLanes: [],   // lanes with an overhead barrier in the previous row
   over: false,
   newBest: false,
   cutT: 0,                // cutscene clock (s)
-  turnX: 0,               // current view-centre offset (px) — the bend
-  turn: { active:false, dir:0, t:0, dur:TURN_DUR, nextAt:500 },
-  nextRopeAt: 900,        // distance at which the next rope section spawns
-  swingT: -1,             // rope-swing timer (<0 = not swinging)
-  turnCount: 0,           // bends started (test hook)
-  ropeCount: 0,           // rope sections spawned (test hook)
-  swingCount: 0,          // swings completed-started (test hook)
+  trainCount: 0,          // trains spawned (test hook)
+  slideCount: 0,          // slides started (test hook)
+  roofRideCount: 0,       // times the player landed on a train roof (test hook)
+  coinLineCount: 0,       // ground-line coins spawned (test hook)
+  coinArcCount: 0,        // arc coins spawned (test hook)
+  roofCoinCount: 0,       // roof coins spawned (test hook)
   smoke: [],              // dust puffs kicked up by the wolf's paws
   smokeAcc: 0,            // smoke spawn accumulator
 };
@@ -392,35 +458,34 @@ function wolfFrameIndex(){
   return Math.floor(S.runTime * runFps()) % 4;
 }
 /* Where the wolf is drawn during the chase: DIRECTLY behind bé cá,
-   same horizontal centre (WOLF_X_OFF = 0), slightly higher
-   (further away) on the ground plane — drawn BEFORE her, so she
-   occludes its middle. One vertical column: her, a ~1 cm gap from
-   her back/tail, then the wolf. */
+   same horizontal centre (WOLF_X_OFF = 0), BELOW her on screen —
+   closer to the camera, larger, paws near the bottom of the screen.
+   Its head sits ~1 cm below her feet. One vertical column: her,
+   a ~1 cm gap, then the wolf. */
 function wolfGeom(){
   const bob = Math.sin(S.time * (9 + S.speed * 0.05)) * 4 * U;
   return {
     x: S.charX + WOLF_X_OFF * U,
-    feetY: PLAYER_Y - WOLF_FEET_LIFT * U + bob,
-    w: WOLF_W * U,
+    feetY: WOLF_FEET_Y + bob,                       // content feet (paws)
+    h: WOLF_CONTENT_H_BASE * U,                    // content height
+    headTopY: WOLF_FEET_Y + bob - WOLF_CONTENT_H_BASE * U, // top of its head
   };
 }
 /* The chase gap, measured two ways (local units and screen px).
    The wolf is DIRECTLY behind bé cá (same x, same lane), so the
-   gap is the ground-plane distance from bé cá's BACK and TAIL to
-   the wolf's nose — WOLF_FEET_LIFT (30 local ≈ 1 cm on iPhone).
-   There is no sideways offset any more: the nose sits on the same
-   vertical line as her back, 1 cm behind the tip of her tail. */
+   gap is the vertical distance from bé cá's FEET/TAIL to the
+   wolf's head — WOLF_GAP_LOCAL (30 local ≈ 1 cm on iPhone).
+   There is no sideways offset any more: the head sits on the same
+   vertical line as her feet, 1 cm below them. */
 function wolfGap(){
   return {
-    groundLocal: WOLF_FEET_LIFT, groundPx: WOLF_FEET_LIFT * U,
-    noseLocal: WOLF_FEET_LIFT, nosePx: WOLF_FEET_LIFT * U,
+    groundLocal: WOLF_GAP_LOCAL, groundPx: WOLF_GAP_LOCAL * U,
+    noseLocal: WOLF_GAP_LOCAL, nosePx: WOLF_GAP_LOCAL * U,
   };
 }
-/* The view centre: during a bend it eases sideways, and the lanes
-   (obstacles, stars, rope, bé cá) shift with it — the turn reads
-   through the arrow, the caption and the obstacles moving, while
-   the BACKGROUND stays put. Straight sections: viewCX === CENTER_X. */
-function viewCX(){ return CENTER_X + S.turnX; }
+/* The view centre: the railway is STRAIGHT — no turns any more,
+   so the view never shifts sideways. */
+function viewCX(){ return CENTER_X; }
 function wolfVisible(){ return S.mode === 'playing' && S.runTime < WOLF_CHASE_T; }
 function wolfAlpha(){
   if (!wolfVisible()) return 0;
@@ -435,54 +500,89 @@ function groundY(z){ return HORIZON_Y + (PLAYER_Y - HORIZON_Y) * scaleAt(z); }
 
 /* ---------- obstacle size: drawn size = collision size ---------- */
 function obstDims(kind){
-  // The barrier is width-driven: 1.2 lanes wide, height from its real
-  // aspect (931x320 = 2.909). A star is height-driven: half bé cá's height.
-  if (kind === 'star') {
-    const h = STAR_H_BASE * U;
-    const aspect = imgReady(imgStar) ? imgStar.naturalWidth / imgStar.naturalHeight : 1;
-    return { w: h * aspect, h };
+  if (kind === 'coin') {
+    const h = COIN_H_BASE * U;
+    return { w: h, h };
   }
-  const img = imgLow;
-  const aspect = imgReady(img) ? img.naturalWidth / img.naturalHeight : 2.909;
+  if (kind === 'train') {
+    const w = TRAIN_W_LANES * LANE_HALF;
+    return { w, h: w * TRAIN_ASPECT };
+  }
+  if (kind === 'over') {
+    const w = OVER_W_LANES * LANE_HALF;
+    return { w, h: w / (600 / 420) };
+  }
+  // low barrier: width-driven, height from its real aspect (931x320)
   const w = LOW_W_LANES * LANE_HALF;
-  return { w, h: w / aspect };
+  return { w, h: w / (931 / 320) };
 }
 function lowBarH(){ return obstDims('low').h; }            // height the jump must clear
-function starH(){ return obstDims('star').h; }              // star height (screen px)
+function trainRoofHpx(){ return obstDims('train').h; }     // train roof height, screen px
+function trainRoofHLocal(){ return trainRoofHpx() / U; }   // train roof height, local units
+function overGapHpx(){ return obstDims('over').h * OVER_GAP_FRAC; } // clear gap under the overhead bar, px
+function overGapLocal(){ return overGapHpx() / U; }
 function jumpApex(){ return (JUMP_V * JUMP_V) / (2 * JUMP_G); } // apex, screen px
+function jumpHeight(){
+  if (S.jumpT < 0) return 0;
+  const t = S.jumpT;
+  return S.jumpBase + Math.max(0, JUMP_V * t - 0.5 * JUMP_G * t * t);
+}
+/* The player's feet height right now: on a train roof it is the
+   roof height, in the air it is the jump height, on the ground 0. */
+function playerH(){
+  if (S.onTrain) return trainRoofHpx();
+  return jumpHeight();
+}
+function isSliding(){ return S.slideT >= 0; }
+/* The train (if any) whose roof is under the player right now:
+   same lane, back already arrived (within the hit window — the
+   player lands on the roof when the back is |z| <= HIT_Z, while
+   it is still a few units ahead) and far end not yet past. */
+function trainUnderPlayer(){
+  for (const e of S.entities) {
+    if (e.kind !== 'train') continue;
+    if (e.lane !== S.lane) continue;
+    if (e.z <= HIT_Z && e.z + e.len >= 0) return e;
+  }
+  return null;
+}
+function landOnTrain(t){
+  if (S.onTrain !== t) S.roofRideCount++;
+  S.onTrain = t;
+  S.jumpT = -1;
+  S.jumpBase = 0;
+}
 
 /* ---------- spawn fairness ---------- */
-// A row is fair if some lane lets the player through: stand (no overlap)
-// or jump (overlap only with low barriers — and every barrier IS a low
-// barrier, so jumping always works). Rows are built with at most 2
-// barriers, so a free lane always exists as well.
+// A row is fair if some lane lets the player through:
+// - no obstacle overlapping the lane: run through
+// - only a LOW barrier: jump over it
+// - only an OVERHEAD barrier: slide under it
+// - only a TRAIN: jump ONTO its roof (counts only if the jump can
+//   reach the roof — apex 195 vs roof ~160, margin ~35)
 function lanePassable(lane, row){
-  const ways = [
-    { pw: PLAYER_HW, kinds: [] },      // stand: nothing may touch the player
-    { pw: PLAYER_HW, kinds: ['low'] }, // jump: only low barriers may touch
-  ];
-  for (const way of ways) {
-    let ok = true;
-    for (const o of row) {
-      if (o.kind !== 'low') continue;
-      const d = obstDims(o.kind);
-      const dx = Math.abs(lane - o.lane) * LANE_HALF;
-      if (dx < d.w / 2 + way.pw && !way.kinds.includes(o.kind)) { ok = false; break; }
-    }
-    if (ok) return true;
-  }
+  const overlaps = row.filter(o => {
+    if (o.kind === 'coin') return false;
+    const d = obstDims(o.kind);
+    return Math.abs(lane - o.lane) * LANE_HALF < d.w / 2 + PLAYER_HW;
+  });
+  if (overlaps.length === 0) return true;
+  if (overlaps.length > 1) return false; // two obstacles in one lane: no way through
+  const k = overlaps[0].kind;
+  if (k === 'low') return true;   // jump
+  if (k === 'over') return true;  // slide
+  if (k === 'train') return jumpApex() >= trainRoofHpx() + 25 * U; // roof reachable
   return false;
 }
-function rowIsFair(row){
-  return [-1, 0, 1].some(l => lanePassable(l, row));
-}
+function passableLanes(row){ return [-1, 0, 1].filter(l => lanePassable(l, row)); }
+function rowIsFair(row){ return passableLanes(row).length > 0; }
 function rowFreeLane(row){
-  // a lane no barrier overlaps at all (the stronger design guarantee:
+  // a lane no obstacle overlaps at all (the stronger design guarantee:
   // every row leaves a lane you can simply run through)
   for (const l of [-1, 0, 1]) {
     let free = true;
     for (const o of row) {
-      if (o.kind !== 'low') continue;
+      if (o.kind === 'coin') continue;
       const d = obstDims(o.kind);
       if (Math.abs(l - o.lane) * LANE_HALF < d.w / 2 + PLAYER_HW) { free = false; break; }
     }
@@ -496,15 +596,23 @@ function moveLeft(){ if (S.mode !== 'playing') return; if (S.lane > -1) S.lane--
 function moveRight(){ if (S.mode !== 'playing') return; if (S.lane < 1) S.lane++; }
 function doJump(){
   if (S.mode !== 'playing') return;
-  if (S.swingT >= 0) return; // mid-swing: hands are on the rope
-  if (S.jumpT < 0) S.jumpT = 0;
+  if (S.slideT >= 0) return; // mid-slide: too low to jump
+  if (S.jumpT < 0) {
+    // Jumping off a train roof starts from the roof height.
+    S.jumpBase = S.onTrain ? trainRoofHpx() : 0;
+    S.onTrain = null;
+    S.jumpT = 0;
+  }
 }
-function jumpHeight(){
-  if (S.jumpT < 0) return 0;
-  const t = S.jumpT;
-  return Math.max(0, JUMP_V * t - 0.5 * JUMP_G * t * t);
+function doSlide(){
+  if (S.mode !== 'playing') return;
+  if (S.jumpT >= 0) return; // mid-jump: cannot slide
+  if (S.onTrain) return;     // on a roof: nothing to slide under
+  if (S.slideT >= 0) return; // already sliding
+  if (S.slideCd > 0) return; // cooldown — no spamming
+  S.slideT = 0;
+  S.slideCount++;
 }
-function isSwinging(){ return S.swingT >= 0; }
 
 document.addEventListener('keydown', e => {
   if (e.repeat) return;
@@ -512,13 +620,14 @@ document.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft')  { moveLeft();  e.preventDefault(); }
   if (e.key === 'ArrowRight') { moveRight(); e.preventDefault(); }
   if (e.key === 'ArrowUp' || e.key === ' ') { doJump(); e.preventDefault(); }
+  if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') { doSlide(); e.preventDefault(); }
   if (e.key === 'Enter') {
     if (S.mode === 'menu') startGame();
     else if (S.mode === 'over') startGame();
   }
 });
 
-/* touch: swipe to move / jump, tap to jump; tap during the cutscene skips it */
+/* touch: swipe to move / jump / slide, tap to jump; tap during the cutscene skips it */
 let touchStart = null;
 wrap.addEventListener('touchstart', e => {
   // Let buttons (Start / Play again) handle their own taps — do not swallow their click on iOS.
@@ -539,6 +648,7 @@ wrap.addEventListener('touchend', e => {
   if (Math.max(adx, ady) < 24 && dt < 400) { doJump(); }           // tap = jump
   else if (adx > ady) { dx > 0 ? moveRight() : moveLeft(); }       // horizontal swipe
   else if (dy < 0) { doJump(); }                                   // swipe up = jump
+  else if (dy > 0) { doSlide(); }                                  // swipe down = slide
   touchStart = null;
   e.preventDefault();
 }, { passive:false });
@@ -550,49 +660,137 @@ wrap.addEventListener('click', e => {
 });
 
 /* ---------- spawning ---------- */
+/* Lanes a train already spans at the spawn line — a new train or a
+   ground obstacle must not be placed there (it would sit inside
+   the train's body). */
+function trainBlockedLanes(){
+  const out = [];
+  for (const l of [-1, 0, 1]) {
+    if (S.entities.some(e => e.kind === 'train' && e.lane === l && e.z <= SPAWN_Z && e.z + e.len >= SPAWN_Z)) out.push(l);
+  }
+  return out;
+}
+function addTrain(lane){
+  const e = {
+    kind: 'train', lane, z: SPAWN_Z,
+    len: TRAIN_LEN_MIN + Math.random() * (TRAIN_LEN_MAX - TRAIN_LEN_MIN),
+    color: TRAIN_COLOR_LIST[Math.floor(Math.random() * TRAIN_COLOR_LIST.length)],
+  };
+  S.entities.push(e);
+  S.trainCount++;
+  return e;
+}
+/* A line of coins along a train's roof (collected while riding it). */
+function addRoofCoins(t){
+  for (let i = 0; i < 5; i++)
+    S.entities.push({ kind: 'coin', lane: t.lane, z: t.z + 20 + i * 30, h: trainRoofHLocal() });
+  S.roofCoinCount += 5;
+}
+/* A neat line of coins on the ground in one lane. */
+function addCoinLine(lane){
+  for (let i = 0; i < COIN_LINE_N; i++)
+    S.entities.push({ kind: 'coin', lane, z: SPAWN_Z + i * COIN_LINE_STEP, h: 0 });
+  S.coinLineCount += COIN_LINE_N;
+}
+/* A jump arc of coins over a low barrier — the peak sits where a
+   well-timed jump actually is, so the arc is collectible. */
+function addCoinArc(lane){
+  for (let i = 0; i < 5; i++)
+    S.entities.push({ kind: 'coin', lane, z: SPAWN_Z + COIN_ARC_Z[i], h: COIN_ARC_H[i] });
+  S.coinArcCount += 5;
+}
 function spawnPattern(){
-  // Only barriers (1–2 per row, never full-width) and gold stars.
-  // Stars come as ONE neat line of exactly 4 in a single lane, and
-  // only in ~40% of patterns — not too many. No star arcs, no
-  // scattered stars, no high stars: the line is on the ground, so
-  // running through its lane collects all 4. Every row leaves a
-  // free lane by construction; the fairness safety net below still
-  // guards against any impossible row.
+  // Trains, low barriers, overhead barriers and gold coins.
+  // Never trains in all 3 lanes of one row. Every row leaves a
+  // way through by construction; the fairness safety net below
+  // still guards against any impossible row — and against
+  // impossible SEQUENCES (a new row's passable lanes must be
+  // reachable from the previous row's with at most one lane
+  // change, so a train here + a train there + a barrier over
+  // there can never trap the player).
   S.patterns++;
   const r = Math.random();
   const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
-  const row = []; // barriers in this row, for the fairness check below
-  const addBarrier = (lane, z) => {
-    const e = { kind:'low', lane, z: z === undefined ? SPAWN_Z : z };
+  const blocked = trainBlockedLanes();
+  const free = lanes.filter(l => !blocked.includes(l));
+  const row = []; // obstacles in this row, for the fairness check below
+  const addLow = (lane) => {
+    const e = { kind: 'low', lane, z: SPAWN_Z };
     S.entities.push(e); row.push(e); return e;
   };
-  const addStar = (lane, z) => S.entities.push({ kind:'star', lane, z, h: 0 });
-  const addStarLine = (lane) => {
-    for (let i = 0; i < 4; i++) addStar(lane, SPAWN_Z + i * 12);
+  const addOver = (lane) => {
+    const e = { kind: 'over', lane, z: SPAWN_Z };
+    S.entities.push(e); row.push(e); return e;
   };
-  if (r < 0.30) {
-    // one barrier only, no stars
-    addBarrier(lanes[0]);
-  } else if (r < 0.60) {
-    // two barriers only, no stars
-    addBarrier(lanes[0]);
-    addBarrier(lanes[1]);
-  } else if (r < 0.72) {
-    // a line of 4 stars on one lane, no barrier
-    addStarLine(lanes[0]);
-  } else if (r < 0.86) {
-    // one barrier + a line of 4 stars on another lane
-    addBarrier(lanes[0]);
-    addStarLine(lanes[1]);
+  const addTrainRow = (lane) => {
+    const e = addTrain(lane); row.push(e); return e;
+  };
+  // An overhead barrier's lane: never the same lane as the
+  // previous row's overhead barrier (see the note in the r<0.82
+  // branch below). Returns null when every free lane is blocked
+  // that way.
+  const overLane = () => {
+    const cands = free.filter(l => !S.prevRowOverLanes.includes(l));
+    return cands.length ? cands[0] : null;
+  };
+  if (r < 0.20) {
+    // one train (sometimes with roof coins)
+    if (free.length) { const t = addTrainRow(free[0]); if (Math.random() < 0.5) addRoofCoins(t); }
+    else addLow(lanes[0]);
+  } else if (r < 0.34) {
+    // one train + one low barrier in another lane
+    if (free.length >= 2) { const t = addTrainRow(free[0]); if (Math.random() < 0.5) addRoofCoins(t); addLow(free[1]); }
+    else if (free.length === 1) { const t = addTrainRow(free[0]); if (Math.random() < 0.5) addRoofCoins(t); }
+    else addLow(lanes[0]);
+  } else if (r < 0.44) {
+    // two trains, third lane free (sometimes with a coin line there)
+    if (free.length >= 2) { addTrainRow(free[0]); addTrainRow(free[1]); if (Math.random() < 0.5) addCoinLine(free[2]); }
+    else if (free.length === 1) { addTrainRow(free[0]); }
+  } else if (r < 0.58) {
+    // two low barriers
+    if (free.length >= 2) { addLow(free[0]); addLow(free[1]); }
+    else if (free.length === 1) { addLow(free[0]); }
+  } else if (r < 0.70) {
+    // one low barrier + a coin arc over it
+    if (free.length) { addLow(free[0]); addCoinArc(free[0]); }
+  } else if (r < 0.82) {
+    // one overhead barrier + a coin line in another lane.
+    // Never an overhead barrier in the same lane as the previous
+    // row's overhead barrier: two in a row, ~110 units apart, is
+    // the one sequence a slide + its cooldown cannot cover at mid
+    // speeds — the player would have to switch lanes mid-cooldown.
+    const ol = overLane();
+    if (ol !== null) {
+      addOver(ol);
+      const cl = free.find(l => l !== ol);
+      if (cl !== undefined) addCoinLine(cl);
+    } else if (free.length) {
+      addLow(free[0]);
+      if (free.length >= 2) addCoinLine(free[1]);
+    }
+  } else if (r < 0.92) {
+    // one overhead barrier + one low barrier in different lanes
+    const ol = overLane();
+    if (ol !== null) {
+      addOver(ol);
+      const other = free.find(l => l !== ol);
+      if (other !== undefined) addLow(other);
+    } else if (free.length >= 2) { addLow(free[0]); addLow(free[1]); }
+    else if (free.length === 1) { addLow(free[0]); }
   } else {
-    // two barriers + a line of 4 stars on the free lane
-    addBarrier(lanes[0]);
-    addBarrier(lanes[1]);
-    addStarLine(lanes[2]);
+    // a coin line only
+    if (free.length) addCoinLine(free[0]);
   }
-  // Fairness safety net: never ship a row with no way through.
-  // If a row is impossible, drop its widest barrier and re-check.
-  while (row.length > 0 && !rowIsFair(row)) {
+  // Fairness safety net: never ship a row with no way through, and
+  // never ship a row the player cannot reach from the previous
+  // row. If a row fails, drop its widest obstacle and re-check.
+  let guard = 0;
+  while (row.length > 0 && guard++ < 8) {
+    const pl = passableLanes(row);
+    const fair = pl.length > 0;
+    const seqOk = S.prevPassable.length === 0 ||
+      S.prevPassable.some(p => pl.some(q => Math.abs(p - q) <= 1));
+    if (fair && seqOk) break;
     let widest = 0;
     for (let i = 1; i < row.length; i++) {
       if (obstDims(row[i].kind).w > obstDims(row[widest].kind).w) widest = i;
@@ -601,8 +799,8 @@ function spawnPattern(){
     const idx = S.entities.indexOf(dropped);
     if (idx >= 0) S.entities.splice(idx, 1);
   }
-  // No side decoration any more — An wants a clean ground: the big
-  // barriers and stars fill the ground, not little props.
+  S.prevPassable = passableLanes(row);
+  S.prevRowOverLanes = row.filter(o => o.kind === 'over').map(o => o.lane);
 }
 
 /* ---------- game flow ---------- */
@@ -612,16 +810,16 @@ function startGame(){
   S.mode = 'cutscene';
   S.cutT = 0;
   S.runTime = 0; S.speed = SPEED_BASE; S.distance = 0;
-  S.score = 0; S.stars = 0;
-  S.lane = 0; S.charX = CENTER_X; S.turnX = 0;
-  S.jumpT = -1; S.swingT = -1;
+  S.score = 0; S.coins = 0; S.mult = 1;
+  S.lane = 0; S.charX = CENTER_X;
+  S.jumpT = -1; S.jumpBase = 0; S.slideT = -1; S.slideCd = 0;
+  S.onTrain = null;
   S.entities = [];
   S.spawnAcc = 0; S.nextGap = 95;  // first pattern after a clear opening stretch
-  S.patterns = 0;
+  S.patterns = 0; S.prevPassable = []; S.prevRowOverLanes = [];
   S.over = false; S.newBest = false;
-  S.turn.active = false; S.turn.t = 0; S.turn.nextAt = 450 + Math.random() * 350;
-  S.nextRopeAt = 900 + Math.random() * 600;
-  S.turnCount = 0; S.ropeCount = 0; S.swingCount = 0;
+  S.trainCount = 0; S.slideCount = 0; S.roofRideCount = 0;
+  S.coinLineCount = 0; S.coinArcCount = 0; S.roofCoinCount = 0;
   S.smoke = []; S.smokeAcc = 0;
   menuEl.classList.add('hidden');
   overEl.classList.add('hidden');
@@ -648,18 +846,21 @@ function gameOver(){
   S.newBest = S.score > S.best;
   if (S.newBest) { S.best = S.score; saveBest(); }
   $('finalScore').textContent = S.score;
-  $('finalStars').textContent = S.stars;
+  $('finalCoins').textContent = S.coins;
   $('finalDist').textContent = Math.floor(S.distance / 10);
   $('newBest').classList.toggle('hidden', !S.newBest);
   bestOverEl.textContent = S.best;
   bestMenuEl.textContent = S.best;
+  bestHudEl.textContent = S.best;
   hudEl.classList.add('hidden');
   hintEl.classList.add('hidden');
   overEl.classList.remove('hidden');
 }
 function updateHUD(){
   scoreEl.textContent = S.score;
-  starsEl.textContent = S.stars;
+  multEl.textContent = 'x' + S.mult;
+  coinsEl.textContent = S.coins;
+  bestHudEl.textContent = S.best;
 }
 $('startBtn').addEventListener('click', startGame);
 $('againBtn').addEventListener('click', startGame);
@@ -678,41 +879,11 @@ function update(dt){
   S.runTime += dt;
   S.speed = Math.min(SPEED_MAX, SPEED_BASE + S.runTime * SPEED_RAMP);
   S.distance += S.speed * dt;
-  S.score = Math.floor(S.distance / 10) + S.stars * 10;
+  // multiplier: x1, +1 every 500 m, cap x60 — the score accelerates
+  S.mult = Math.min(MULT_CAP, 1 + Math.floor((S.distance / 10) / MULT_EVERY_M));
+  S.score = Math.floor(S.distance / 10 * S.mult) + S.coins * 10;
 
-  /* --- turns: every ~700–1300 units the road bends left or right.
-     The turn is shown ONLY by the big arrow + caption and by the
-     lanes (obstacles, stars, rope, bé cá) easing sideways — the
-     MAP itself never moves: the background stays put, there are no
-     ground streaks and no running path, because everything around
-     is sand. --- */
-  if (!S.turn.active && S.distance >= S.turn.nextAt) {
-    S.turn.active = true;
-    S.turn.t = 0;
-    S.turn.dur = TURN_DUR;
-    S.turn.dir = Math.random() < 0.5 ? -1 : 1;
-    S.turnCount++;
-  }
-  if (S.turn.active) {
-    S.turn.t += dt;
-    if (S.turn.t >= S.turn.dur) {
-      S.turn.active = false;
-      S.turn.nextAt = S.distance + 700 + Math.random() * 600;
-    }
-  }
-  const turnTarget = S.turn.active ? S.turn.dir * TURN_SHIFT : 0;
-  S.turnX += (turnTarget - S.turnX) * Math.min(1, dt * 3);
-
-  /* --- rope sections: every ~1300–2000 units a rope appears over a
-     gap in the player's lane. Reaching it grabs it automatically and
-     bé cá swings across (0.9 s, always succeeds). --- */
-  if (S.distance >= S.nextRopeAt) {
-    S.entities.push({ kind:'rope', lane:S.lane, z:SPAWN_Z });
-    S.ropeCount++;
-    S.nextRopeAt = S.distance + 1300 + Math.random() * 700;
-  }
-
-  // smooth lane movement — faster lerp (22/s, was 10) + snap when close,
+  // smooth lane movement — fast lerp (22/s) + snap when close,
   // so the character glides between lanes without lag or stutter
   const targetX = viewCX() + S.lane * LANE_HALF;
   S.charX += (targetX - S.charX) * Math.min(1, dt * LANE_LERP);
@@ -728,7 +899,7 @@ function update(dt){
       S.smokeAcc -= 1;
       if (S.smoke.length < SMOKE_MAX) {
         S.smoke.push({
-          x: g.x + (Math.random() - 0.5) * g.w * 0.55,
+          x: g.x + (Math.random() - 0.5) * g.h * 0.55,
           y: g.feetY - Math.random() * 4 * U,
           r: (5 + Math.random() * 5) * U,
           life: 0, max: 0.55 + Math.random() * 0.3,
@@ -746,15 +917,34 @@ function update(dt){
   }
   S.smoke = S.smoke.filter(p => p.life < p.max);
 
-  // jump timer
+  // jump timer — and the landing: back on a train roof if one is
+  // under the player in this lane, otherwise on the ground
   if (S.jumpT >= 0) {
     S.jumpT += dt;
-    if (jumpHeight() <= 0 && S.jumpT > 0.1) S.jumpT = -1;
+    const bal = JUMP_V * S.jumpT - 0.5 * JUMP_G * S.jumpT * S.jumpT;
+    if (bal <= 0 && S.jumpT > 0.1) {
+      S.jumpT = -1;
+      const t = trainUnderPlayer();
+      if (t) landOnTrain(t);
+      S.jumpBase = 0;
+    }
   }
-  // rope-swing timer
-  if (S.swingT >= 0) {
-    S.swingT += dt;
-    if (S.swingT >= SWING_DUR) S.swingT = -1;
+  // slide timer + cooldown
+  if (S.slideT >= 0) {
+    S.slideT += dt;
+    if (S.slideT >= SLIDE_DUR) { S.slideT = -1; S.slideCd = SLIDE_CD; }
+  }
+  if (S.slideCd > 0) S.slideCd -= dt;
+
+  // roof riding: the player runs along the roof with the train.
+  // They stay until the train's far end passes them, or they jump
+  // off / switch lanes (a switch onto a parallel train's roof
+  // transfers the ride; a switch to open track drops them down).
+  if (S.onTrain) {
+    const t = trainUnderPlayer();
+    if (!t) S.onTrain = null;
+    else if (t !== S.onTrain) S.onTrain = t;
+    if (S.onTrain && S.onTrain.z + S.onTrain.len <= 0) S.onTrain = null;
   }
 
   // spawn patterns by distance — sparser now (mean gap ~108, was 69)
@@ -766,60 +956,73 @@ function update(dt){
     spawnPattern();
   }
 
-  // move entities toward player
+  // move entities toward player (a train stays until its far end passes)
   const dz = S.speed * dt;
   for (const e of S.entities) e.z -= dz;
-  S.entities = S.entities.filter(e => e.z > -30);
+  S.entities = S.entities.filter(e => e.kind === 'train' ? (e.z + e.len > -30) : (e.z > -30));
 
   // collisions / pickups in the hit zone
-  const pH = jumpHeight();
-  const swinging = isSwinging();
+  const pH = playerH();
+  const sliding = isSliding();
   for (const e of S.entities) {
     if (e.taken || e.passed) continue;
     if (Math.abs(e.z) > HIT_Z) continue;
-    if (e.kind === 'star') {
-      // stars are collected by running into them on the ground —
-      // mid-swing counts too. All stars are ground stars in a line
-      // of 4, so staying in their lane on the ground collects them.
+    if (e.kind === 'coin') {
+      // coins are collected by running/jumping/riding into them —
+      // ground lines on the ground, arcs mid-jump, roof lines
+      // while running on a train roof.
       if (e.lane !== S.lane) continue;
-      const starHgt = (e.h || 0) * U;
-      if (Math.abs(pH - starHgt) < STAR_PICKUP_BASE * U) { e.taken = true; S.stars++; updateHUD(); }
+      if (Math.abs(pH - (e.h || 0) * U) < COIN_PICKUP_BASE * U) { e.taken = true; S.coins++; updateHUD(); }
       continue;
     }
-    if (e.kind === 'rope') {
-      // reaching the rope in its lane grabs it automatically
-      if (e.lane === S.lane && S.swingT < 0) {
-        S.swingT = 0; S.swingCount++; e.taken = true;
-      } else {
-        e.passed = true;
-      }
-      continue;
-    }
-    // Barrier: real x-overlap from the DRAWN width — what you see is
-    // what kills you. Mid-swing she is over the gap, so barriers
-    // cannot touch her.
-    if (swinging) continue;
+    // Real x-overlap from the DRAWN width — what you see is what
+    // kills you.
     const d = obstDims(e.kind);
     const hw = (d.w / 2) * scaleAt(Math.max(0, e.z));
-    const overlap = Math.abs(S.charX - laneX(e.lane, e.z)) < hw + PLAYER_HW;
-    if (!overlap) continue; // clear of it this frame; re-checked next frame
-    if (pH < lowBarH() - 6 * U) { gameOver(); return; } // the wolf catches her
-    e.passed = true;
+    if (Math.abs(S.charX - laneX(e.lane, e.z)) >= hw + PLAYER_HW) continue;
+    if (e.kind === 'train') {
+      if (S.onTrain) continue; // already riding a roof
+      // The rear face: jumping high enough lands ON the roof,
+      // anything lower smacks into the back of the train.
+      if (pH >= d.h - 4 * U) { landOnTrain(e); }
+      else { gameOver(); return; } // the wolf catches her
+      continue;
+    }
+    // Ground barriers: on a train roof the player runs ABOVE them
+    // all — no collision with the train or with ground barriers.
+    // A barrier already behind the player (z<0) has passed them:
+    // mark it passed so dropping off a roof into its lane while it
+    // is still inside the +-9 window cannot kill them for a barrier
+    // that is already behind their feet.
+    if (e.kind === 'low' || e.kind === 'over') {
+      if (e.z < 0) { e.passed = true; continue; }
+    }
+    if (S.onTrain) continue;
+    if (e.kind === 'low') {
+      if (pH < d.h - 6 * U) { gameOver(); return; } // the wolf catches her
+      e.passed = true;
+    } else if (e.kind === 'over') {
+      // The overhead bar is a ceiling: standing or jumping into it
+      // crashes — ONLY sliding (low, 70 local, under the ~85-local
+      // gap) passes cleanly.
+      if (sliding) { e.passed = true; }
+      else { gameOver(); return; } // the wolf catches her
+    }
   }
   updateHUD();
 }
 
 /* ---------- drawing ---------- */
 function drawBackground(){
-  // Low-poly beach (no rails, no path — bé cá runs straight on
-  // uniform sand), drawn cover-style to fill the whole screen
-  // edge-to-edge, with the sea/sand shoreline aligned to
-  // HORIZON_Y. The background is FIXED: it never shifts, pans or
-  // follows the character — not even during a turn. The map is
-  // stable; only the obstacles, stars and bé cá move.
+  // Railway environment (sky, wires, trees, walls, gravel bed),
+  // drawn cover-style to fill the whole screen edge-to-edge, with
+  // the gravel bed's top aligned to HORIZON_Y. The background is
+  // FIXED: it never shifts, pans or follows the character. The
+  // sense of movement comes from the tracks, trains, barriers and
+  // coins approaching, and from bé cá's run.
   if (imgReady(bgImg)) {
     const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight; // 800x1600
-    const horizonInImg = ih * BG_HORIZON_FRAC; // sea meets sand here
+    const horizonInImg = ih * BG_HORIZON_FRAC; // gravel bed starts here
     const s = Math.max(VW / iw, VH / ih, (VH - HORIZON_Y) / (ih - horizonInImg));
     const dw = iw * s, dh = ih * s;
     const dx = (VW - dw) / 2;
@@ -830,86 +1033,152 @@ function drawBackground(){
     ctx.fillRect(0, 0, VW, VH);
   }
 }
-function drawStar(e){
-  // A simple modest gold star — NO glow, NO glint, NO pulse. The art
-  // itself carries a soft shine; the code adds nothing on top.
-  if (!imgReady(imgStar)) return;
+function drawTracks(){
+  // The 3 train tracks, drawn procedurally on the gravel bed —
+  // the background art has NO painted rails, so the tracks must
+  // come from code. Steel rails converge to the vanishing point
+  // (CENTER_X, HORIZON_Y); wooden sleepers are horizontal ticks
+  // at uniform world spacing, so they bunch together toward the
+  // horizon by perspective. The tracks use the SAME laneX /
+  // groundY / scaleAt math as the obstacles, so they align
+  // exactly with the 3 lane positions. Drawn from below the
+  // player (z < 0, toward the camera) all the way to the horizon
+  // (z = 1000, a few px short of the vanishing point).
+  const zs = [-24, 0, 20, 45, 80, 130, 200, 300, 500, 1000];
+  for (const lane of [-1, 0, 1]) {
+    // sleepers first (under the rails) — tight spacing nearby,
+    // wider steps far away where perspective bunches them anyway
+    for (let z = -24; z <= 1000; z += (z < 200 ? 9 : 45)) {
+      const s = scaleAt(Math.max(0, z));
+      const y = groundY(z);
+      const cx = laneX(lane, z);
+      const half = 0.46 * LANE_HALF * s;
+      ctx.strokeStyle = '#7d5636';
+      ctx.lineWidth = Math.max(1, 5 * U * s);
+      ctx.beginPath();
+      ctx.moveTo(cx - half, y);
+      ctx.lineTo(cx + half, y);
+      ctx.stroke();
+    }
+    // rails: two steel lines per track, tapering with perspective
+    const railHalf = 0.34 * LANE_HALF;
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < zs.length - 1; i++) {
+        const z0 = zs[i], z1 = zs[i + 1];
+        const s0 = scaleAt(Math.max(0, z0)), s1 = scaleAt(Math.max(0, z1));
+        ctx.strokeStyle = '#a7b2ba';
+        ctx.lineWidth = Math.max(1, 4.5 * U * (s0 + s1) / 2);
+        ctx.beginPath();
+        ctx.moveTo(laneX(lane, z0) + side * railHalf * s0, groundY(z0));
+        ctx.lineTo(laneX(lane, z1) + side * railHalf * s1, groundY(z1));
+        ctx.stroke();
+      }
+    }
+  }
+}
+function drawCoin(e){
+  // A simple modest gold coin — NO glow. It spins gently (the
+  // horizontal squash reads as a spin, like the video's coins).
+  if (!imgReady(imgCoin)) return;
   const s = scaleAt(e.z);
   const x = laneX(e.lane, e.z);
-  // centre sits half a star above the ground: the star's bottom
-  // touches the sand
-  const h = STAR_H_BASE * U;
-  const w = h * (imgStar.naturalWidth / imgStar.naturalHeight);
+  // centre sits half a coin above its height: the coin's bottom
+  // touches the ground (or the roof) at height h
+  const h = COIN_H_BASE * U;
   const y = groundY(e.z) - (e.h || 0) * U * s - (h / 2) * s;
+  const spin = Math.abs(Math.cos(S.time * 3 + e.z * 0.15)) * 0.75 + 0.25;
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(s, s);
-  ctx.drawImage(imgStar, -w / 2, -h / 2, w, h);
+  ctx.scale(s * spin, s);
+  ctx.drawImage(imgCoin, -h / 2, -h / 2, h, h);
   ctx.restore();
 }
 function drawObstacle(e){
   const s = scaleAt(e.z);
   if (s < 0.1) return;
-  if (!imgReady(imgLow)) return;
+  const img = e.kind === 'over' ? imgOver : imgLow;
+  if (!imgReady(img)) return;
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z);
-  // The barrier is lane-wide now — the drawn size is the same size the
+  // The barrier is lane-wide — the drawn size is the same size the
   // collision check uses (see obstDims).
   const d = obstDims(e.kind);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
-  ctx.drawImage(imgLow, -d.w / 2, -d.h, d.w, d.h);
+  ctx.drawImage(img, -d.w / 2, -d.h, d.w, d.h);
   ctx.restore();
 }
-function drawRope(e){
+function drawTrain(e){
+  // A long colourful train occupying one track: the rear-face art
+  // sprite at z (the back of the train), the ROOF as a flat
+  // coloured trapezoid from the rear face toward the horizon, and
+  // darker side quads. The train is ~0.9 lanes wide; its roof is
+  // ~160 local units high — reachable by the jump (apex ~195).
   const s = scaleAt(e.z);
-  if (s < 0.08) return;
-  const x = laneX(e.lane, e.z);
-  const y = groundY(e.z);
-  // the gap in the path: a dark hole in the sand, lane-wide
-  ctx.fillStyle = 'rgba(38, 20, 6, 0.9)';
+  if (s < 0.05) return;
+  const z2 = e.z + e.len;
+  const s2 = scaleAt(z2);
+  const img = trainImgs[e.color] || trainImgs.red;
+  const d = obstDims('train');
+  const x = laneX(e.lane, e.z), y = groundY(e.z);
+  const x2 = laneX(e.lane, z2), y2 = groundY(z2);
+  const w = d.w * s, h = d.h * s, w2 = d.w * s2, h2 = d.h * s2;
+  // the rear-face art has transparent side margins (content is
+  // 338/400 of the width) — the roof and sides align with the
+  // VISIBLE face, not the transparent margins
+  const cHalf = 0.4225, cHalf2 = 0.4225;
+  const c = TRAIN_COLORS[e.color] || TRAIN_COLORS.red;
+  // left side quad (darker)
+  ctx.fillStyle = c.side;
   ctx.beginPath();
-  ctx.ellipse(x, y, 62 * U * s, 13 * U * s, 0, 0, Math.PI * 2);
+  ctx.moveTo(x - w * cHalf, y - h);
+  ctx.lineTo(x - w * cHalf, y);
+  ctx.lineTo(x2 - w2 * cHalf2, y2);
+  ctx.lineTo(x2 - w2 * cHalf2, y2 - h2);
+  ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = 'rgba(20, 10, 2, 0.9)';
+  // right side quad (darker)
   ctx.beginPath();
-  ctx.ellipse(x, y, 44 * U * s, 8 * U * s, 0, 0, Math.PI * 2);
+  ctx.moveTo(x + w * cHalf, y - h);
+  ctx.lineTo(x + w * cHalf, y);
+  ctx.lineTo(x2 + w2 * cHalf2, y2);
+  ctx.lineTo(x2 + w2 * cHalf2, y2 - h2);
+  ctx.closePath();
   ctx.fill();
-  // the rope: hangs from above the screen down to the gap, swaying gently
-  const sway = Math.sin(S.time * 2 + e.z * 0.3) * 7 * U * s;
-  const topY = Math.max(-10, y - 320 * U * s);
-  const botY = y - 46 * U * s;
-  ctx.strokeStyle = '#8a6b3f';
-  ctx.lineWidth = Math.max(2, 5 * U * s);
-  ctx.lineCap = 'round';
+  // roof trapezoid: rear top edge -> far top edge
+  ctx.fillStyle = c.roof;
   ctx.beginPath();
-  ctx.moveTo(x + sway, topY);
-  ctx.lineTo(x, botY);
-  ctx.stroke();
-  // grip knot at the bottom of the rope
-  ctx.fillStyle = '#6b4e2a';
-  ctx.beginPath();
-  ctx.arc(x, botY, Math.max(2, 7 * U * s), 0, Math.PI * 2);
+  ctx.moveTo(x - w * cHalf, y - h);
+  ctx.lineTo(x + w * cHalf, y - h);
+  ctx.lineTo(x2 + w2 * cHalf2, y2 - h2);
+  ctx.lineTo(x2 - w2 * cHalf2, y2 - h2);
+  ctx.closePath();
   ctx.fill();
+  // rear face sprite (the back of the train, facing the player)
+  if (imgReady(img)) ctx.drawImage(img, x - w / 2, y - h, w, h);
 }
-/* Draw one wolf run frame at a FIXED display width w, feet anchored
-   at feetY, centred on cx. Height follows the frame's own aspect
-   (the frames differ in width, so their heights differ too — that
-   variation is the gallop's stretch along the depth axis). */
-function drawWolfFrame(img, cx, feetY, w){
+/* Draw one wolf run frame at a FIXED CONTENT height, content feet
+   anchored at feetY, centred on cx. The display height follows the
+   frame's own content fraction (WOLF_FRAME_META), so the body bulk
+   stays steady and the head-to-feet gap stays exact. Returns the
+   display height drawn. */
+function drawWolfFrame(img, cx, feetY, contentH, frameIdx){
   if (!imgReady(img)) return 0;
-  const aspect = img.naturalWidth / img.naturalHeight;
-  const h = w / aspect;
-  ctx.drawImage(img, cx - w / 2, feetY - h, w, h);
-  return h;
+  const meta = WOLF_FRAME_META[frameIdx || 0];
+  const displayH = contentH / meta.h;
+  const w = displayH * (img.naturalWidth / img.naturalHeight);
+  const y = feetY - displayH * (1 - meta.bot);
+  ctx.drawImage(img, cx - w / 2, y, w, displayH);
+  return displayH;
 }
 function drawWolfChase(){
   // The wolf runs DIRECTLY BEHIND bé cá — same x centre, a ~1 cm
-  // gap from her back/tail, cycling all 4 run frames at the same
-  // rate as her stride. Fades out over the last second of the 7 s
-  // chase. Drawn BEFORE bé cá, so she occludes its middle: it is
-  // behind her, one vertical column, never beside her.
+  // gap from her feet/tail to its head, cycling all 4 run frames
+  // at the same rate as her stride — but BELOW her on screen,
+  // closer to the camera and LARGER, so it is clearly visible at
+  // the bottom of the screen instead of hiding behind her. Fades
+  // out over the last second of the 7 s chase.
   const a = wolfAlpha();
   if (a <= 0) return;
   const img = wolfFrames[wolfFrameIndex()];
@@ -917,7 +1186,7 @@ function drawWolfChase(){
   const g = wolfGeom();
   ctx.save();
   ctx.globalAlpha = a;
-  drawWolfFrame(img, g.x, g.feetY, g.w);
+  drawWolfFrame(img, g.x, g.feetY, g.h, wolfFrameIndex());
   ctx.restore();
 }
 /* The dust the wolf kicks up: soft grey-tan puffs drifting backward
@@ -935,47 +1204,32 @@ function drawSmoke(){
   }
   ctx.restore();
 }
-function drawSwing(){
-  // Bé cá hanging from the rope, swinging forward over the gap.
-  // Pendulum: back at grab, forward at landing.
-  const p = Math.min(1, S.swingT / SWING_DUR);
-  const ang = -0.55 * Math.cos(p * Math.PI);
-  const ax = S.charX, ay = PLAYER_Y - 300 * U;
-  const L = 175 * U;
-  const hx = ax + Math.sin(ang) * L, hy = ay + Math.cos(ang) * L;
-  ctx.save();
-  ctx.strokeStyle = '#8a6b3f';
-  ctx.lineWidth = 5 * U;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(ax, ay);
-  ctx.lineTo(hx, hy);
-  ctx.stroke();
-  ctx.restore();
-  // the gap passing underneath while she swings
-  ctx.fillStyle = 'rgba(38, 20, 6, 0.9)';
-  ctx.beginPath();
-  ctx.ellipse(S.charX, PLAYER_Y + 4 * U, 62 * U, 13 * U, 0, 0, Math.PI * 2);
-  ctx.fill();
-  const img = runFrames[1];
-  if (!imgReady(img)) return;
-  const h = CHAR_H;
-  const w = h * (img.naturalWidth / img.naturalHeight);
-  ctx.save();
-  ctx.translate(hx, hy);
-  ctx.rotate(ang);
-  ctx.drawImage(img, -w / 2, 0, w, h); // head at the hands, body dangling
-  ctx.restore();
-}
 function drawCharacter(){
-  if (isSwinging()) { drawSwing(); return; }
+  const pH = jumpHeight();
+  const roofH = S.onTrain ? trainRoofHpx() : 0;
+  // soft shadow — on the ground, or on the roof while riding it
+  const shBase = PLAYER_Y - roofH;
+  const shScale = Math.max(0.35, 1 - (pH - roofH) / (220 * U));
+  const shW = 34 * U * shScale;
+  ctx.fillStyle = 'rgba(60,30,0,.28)';
+  ctx.beginPath();
+  ctx.ellipse(S.charX, shBase + 6 * U, shW, 8 * U * shScale, 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (isSliding()) {
+    // slide/roll: low, feet-first, body horizontal — the slide pose
+    const img = imgSlide;
+    if (!imgReady(img)) return;
+    const h = SLIDE_DRAW_H;
+    const w = h * (img.naturalWidth / img.naturalHeight);
+    ctx.drawImage(img, S.charX - w / 2, PLAYER_Y - h, w, h);
+    return;
+  }
   const img = runFrames[runFrameIndex()];
   if (!imgReady(img)) return;
   const norm = speedNorm();
   const bobFreq = 9 + S.speed * 0.05;      // bob quickens with speed
   const bobAmp = (4 + norm * 3) * U;       // bigger bob — energetic pumping
   const bob = Math.sin(S.time * bobFreq) * bobAmp;
-  const pH = jumpHeight();
   const h = CHAR_H;
   const w = h * (img.naturalWidth / img.naturalHeight);
   // forward lunge: once per stride cycle the body surges toward the
@@ -986,17 +1240,10 @@ function drawCharacter(){
   // leans forward more as the race builds — a real race, not a jog
   const lean = 0.08 + norm * 0.14;
   const tilt = Math.sin(S.time * bobFreq) * 0.05 + lean;
-  // soft shadow
-  const shScale = Math.max(0.35, 1 - pH / (220 * U));
-  const shW = 34 * U * shScale;
-  ctx.fillStyle = 'rgba(60,30,0,.28)';
-  ctx.beginPath();
-  ctx.ellipse(S.charX, PLAYER_Y + 6 * U, shW, 8 * U * shScale, 0, 0, Math.PI*2);
-  ctx.fill();
   ctx.save();
   ctx.translate(S.charX, feetY);
   ctx.rotate(tilt);
-  ctx.drawImage(img, -w/2, -h, w, h);
+  ctx.drawImage(img, -w / 2, -h, w, h);
   ctx.restore();
 }
 /* Speed lines / wind streaks at the screen edges — appear as speed builds.
@@ -1030,26 +1277,6 @@ function drawSpeedLines(){
     ctx.lineTo(x, y + len);
     ctx.stroke();
   }
-  ctx.restore();
-}
-/* ---------- turn arrow ---------- */
-function drawTurnArrow(){
-  if (!S.turn.active) return;
-  const dir = S.turn.dir;
-  const arrow = dir < 0 ? '◀' : '▶';
-  const vi = dir < 0 ? 'RẼ TRÁI!' : 'RẼ PHẢI!';
-  const en = dir < 0 ? 'Turn left!' : 'Turn right!';
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = '900 ' + Math.round(30 * U) + 'px "Comic Sans MS", sans-serif';
-  ctx.shadowColor = 'rgba(0,40,90,.6)';
-  ctx.shadowBlur = 6;
-  ctx.fillStyle = '#ffe082';
-  ctx.fillText(arrow + '  ' + vi + '  ' + arrow, viewCX(), 96 * U);
-  ctx.font = '700 ' + Math.round(15 * U) + 'px "Comic Sans MS", sans-serif';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(en, viewCX(), 122 * U);
   ctx.restore();
 }
 /* ---------- intro cutscene ---------- */
@@ -1122,7 +1349,7 @@ function drawCutscene(){
     // (c) the wolf jumps up angry, bé cá runs off to the right
     const p = ease(Math.min(1, (t - CUT_B) / (CUT_C - CUT_B)));
     const bounce = -18 * U * Math.sin(p * Math.PI);
-    drawWolfFrame(wolfFrames[0], wolfX, PLAYER_Y + bounce, 150 * U);
+    drawWolfFrame(wolfFrames[0], wolfX, PLAYER_Y + bounce, 150 * U, 0);
     const img = runFrames[Math.floor(t * 12) % 4];
     const rw = becaH * (img.naturalWidth / img.naturalHeight);
     const bx = VW * 0.52 + (VW * 0.95 - VW * 0.52) * p;
@@ -1130,12 +1357,15 @@ function drawCutscene(){
     drawCaption('Sói tỉnh dậy rồi — giận lắm!', 'The wolf woke up — ANGRY!', 110 * U);
   } else {
     // (d) the chase is on — the wolf DIRECTLY behind bé cá, one
-    // vertical column (same x, ~1 cm gap from her back/tail), both
-    // running, then the run begins. The wolf is drawn FIRST so
-    // bé cá is in front of it.
+    // vertical column (same x, ~1 cm gap from her feet to its
+    // head), the wolf BELOW her on screen (closer to the camera,
+    // larger, paws near the bottom) — NOT above her, NOT beside
+    // her. The wolf is drawn FIRST so bé cá is in front of it,
+    // but with the gap between them the whole wolf stays visible.
+    const fi = Math.floor(t * 14) % 4;
     const bob = Math.sin(t * 14) * 4 * U;
-    drawWolfFrame(wolfFrames[Math.floor(t * 14) % 4], VW * 0.52, PLAYER_Y - WOLF_FEET_LIFT * U + bob, 132 * U);
-    const img = runFrames[Math.floor(t * 14) % 4];
+    drawWolfFrame(wolfFrames[fi], VW * 0.52, WOLF_FEET_Y + bob, WOLF_CONTENT_H_BASE * U, fi);
+    const img = runFrames[fi];
     const rw = becaH * (img.naturalWidth / img.naturalHeight);
     if (imgReady(img)) ctx.drawImage(img, VW * 0.52 - rw / 2, PLAYER_Y - becaH, rw, becaH);
     drawCaption('CHẠY ĐI!', 'RUN!', 110 * U);
@@ -1158,18 +1388,18 @@ function draw(){
     drawCutscene();
     return;
   }
+  drawTracks();
   // entities sorted far -> near
   const ents = S.entities.slice().sort((a,b) => b.z - a.z);
   for (const e of ents) {
     if (e.taken) continue;
-    if (e.kind === 'star') drawStar(e);
-    else if (e.kind === 'rope') drawRope(e);
+    if (e.kind === 'coin') drawCoin(e);
+    else if (e.kind === 'train') drawTrain(e);
     else drawObstacle(e);
   }
-  // the wolf first: it runs BEHIND bé cá, so she occludes its middle
+  // the wolf first: it runs BEHIND bé cá, below her on screen
   if (S.mode === 'playing') { drawWolfChase(); drawSmoke(); }
   drawCharacter();
-  drawTurnArrow();
   // gentle vignette (soft, no flash)
   const vg = ctx.createRadialGradient(viewCX(), VH/2, VH*0.45, viewCX(), VH/2, VH*0.85);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(10,50,100,.18)');
@@ -1194,39 +1424,52 @@ window.__becaRun = {
   start: startGame,
   skipCutscene,
   over: gameOver,
-  moveLeft, moveRight, jump: doJump,
-  jumpHeight, isSwinging, jumpApex,
-  spawnPattern,
+  moveLeft, moveRight, jump: doJump, slide: doSlide,
+  jumpHeight, jumpApex, isSliding, playerH,
+  spawnPattern, trainUnderPlayer, landOnTrain,
   laneX, groundY, scaleAt, viewCX,
   runFrame: runFrameIndex,
   wolfFrame: wolfFrameIndex,
   wolfGeom, wolfGap,
+  drawWolfFrame,
+  wolfFrameMeta: WOLF_FRAME_META,
   smokeCount(){ return S.smoke.length; },
   smoke(){ return S.smoke; },
   speedNorm, speedLines: speedLineState,
-  obstDims, lanePassable, rowIsFair, rowFreeLane, lowBarH, starH,
+  obstDims, lanePassable, passableLanes, rowIsFair, rowFreeLane,
+  lowBarH, trainRoofH: trainRoofHLocal, trainRoofHpx, overGap: overGapLocal,
+  overGapHpx, slideHeight(){ return SLIDE_H_BASE; },
   wolfVisible, wolfAlpha,
   layout(){ return { VW, VH, U, CENTER_X, HORIZON_Y, PLAYER_Y, LANE_HALF,
                      CHAR_H, CHAR_W: CHAR_H * (runFrames[0].naturalWidth / runFrames[0].naturalHeight),
                      LOW_BAR_H: lowBarH(), LOW_BAR_W: obstDims('low').w,
-                     STAR_H: starH(), STAR_W: obstDims('star').w,
-                     STAR_PICKUP: STAR_PICKUP_BASE * U,
-                     JUMP_APEX: jumpApex(), OLD_JUMP_APEX: OLD_JUMP_APEX * U,
+                     OVER_BAR_H: obstDims('over').h, OVER_BAR_W: obstDims('over').w,
+                     OVER_GAP: overGapHpx(), OVER_GAP_LOCAL: overGapLocal(),
+                     TRAIN_ROOF_H: trainRoofHpx(), TRAIN_ROOF_H_LOCAL: trainRoofHLocal(),
+                     TRAIN_W: obstDims('train').w, TRAIN_LEN_MIN, TRAIN_LEN_MAX,
+                     COIN_H: COIN_H_BASE * U, COIN_PICKUP: COIN_PICKUP_BASE * U,
+                     SLIDE_H: SLIDE_H_BASE * U, SLIDE_H_LOCAL: SLIDE_H_BASE,
+                     SLIDE_DUR, SLIDE_CD,
+                     JUMP_APEX: jumpApex(),
                      LANE_LERP, BG_HORIZON_FRAC, CUT_DUR, WOLF_CHASE_T,
-                     SPEED_BASE, SPEED_MAX, PLAYER_HW,
-                     WOLF_W: WOLF_W * U, WOLF_GAP_LOCAL: WOLF_FEET_LIFT,
-                     WOLF_GAP_PX: WOLF_FEET_LIFT * U,
+                     SPEED_BASE, SPEED_MAX, PLAYER_HW, SPAWN_Z,
+                     WOLF_CONTENT_H: WOLF_CONTENT_H_BASE * U,
+                     WOLF_CONTENT_H_LOCAL: WOLF_CONTENT_H_BASE,
+                     WOLF_FEET_Y, WOLF_GAP_LOCAL: WOLF_GAP_LOCAL,
+                     WOLF_GAP_PX: WOLF_GAP_LOCAL * U,
                      WOLF_X_OFF: WOLF_X_OFF * U, SMOKE_RATE, SMOKE_MAX,
-                     TURN_SHIFT }; },
+                     MULT_CAP, MULT_EVERY_M, PLAYER_Y_FRAC }; },
   resize,
   assets(){
     return {
-      bg: imgReady(bgImg), star: imgReady(imgStar),
-      low: imgReady(imgLow),
+      bg: imgReady(bgImg), coin: imgReady(imgCoin),
+      low: imgReady(imgLow), over: imgReady(imgOver),
+      train: { red: imgReady(trainImgs.red), orange: imgReady(trainImgs.orange), blue: imgReady(trainImgs.blue) },
       wolfRun: wolfFrames.map(imgReady), wolfSit: imgReady(imgWolfSit),
       cry: imgReady(imgCry),
       run: runFrames.map(imgReady),
       front: imgReady(spriteFront),
+      slide: imgReady(imgSlide),
     };
   },
   setSpeed(v){ S.speed = v; },
