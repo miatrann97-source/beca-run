@@ -122,6 +122,7 @@
       <span class="k">◀ ▶</span> hoặc vuốt ngang: đổi làn<br>
       <span class="k">▲</span> / chạm màn hình: nhảy qua rào<br>
       <span class="k">▼</span>: trượt dưới biển báo<br>
+      Cầu thang vali: cứ chạy thẳng lên, không cần né!<br>
       Lượm <b>🪙 xu vàng</b> để cộng điểm!
     </div>
     <button class="btn" id="startBtn">CHẠY THÔI! ▶</button>
@@ -150,6 +151,9 @@
    Full 3D world, camera behind the character, wide brown dirt
    ground filling the whole screen edge-to-edge — no rails, bé cá
    runs straight on the ground. A real race, not a jog.
+   Big sparkly coins, obstacles spilling edge-to-edge, suitcase
+   staircases you run up and over. Clean ground, no little props.
+   Ground streaks rush past so she reads as running FORWARD.
    No screen shake anywhere (gentle motion only).
    ============================================================ */
 const canvas = document.getElementById('game');
@@ -166,20 +170,26 @@ const SPAWN_Z = 230;        // spawn distance ahead
 const HIT_Z = 9;            // z window where collisions count
 const SLIDE_T = 0.75;       // slide duration (s)
 /* Obstacle sizes — the ground is wide brown dirt now (no rails), so the
-   obstacles are WIDE and spill across the ground and onto the sides.
-   Drawn size = collision size: what you see is what kills you.
+   obstacles are WIDE and spill across the ground and onto the sides,
+   edge-to-edge. Drawn size = collision size: what you see is what kills you.
    - low fence: fixed low height (always jumpable); its 5.38 aspect makes it
      span the whole ground — a full-width hurdle you must jump.
-   - overhead sign: 2.4 lanes wide, a big sign spanning the ground; the gap
-     under it is half its height, roomy enough to slide under.
-   - tall stack: capped at 1.3 lanes wide so a free lane always exists. */
+   - overhead sign: 3.6 lanes wide, spanning the whole screen like the fence;
+     the gap under it is half its height, roomy enough to slide under.
+   - suitcase ramp: 2.4 lanes wide, a staircase you RUN UP and over — it
+     never blocks its lane, so it can be as wide as it looks good.
+   Coins are big and sparkly (30 local units, was 17). */
 const LOW_H_BASE = 80;        // low fence height, local units
-const OVER_W_LANES = 2.4;     // overhead sign width, in lane units
-const TALL_W_LANES = 1.3;     // tall stack width, in lane units (fairness cap)
+const OVER_W_LANES = 3.6;     // overhead sign width, in lane units (full screen)
+const RAMP_W_LANES = 2.4;     // suitcase staircase width, in lane units
+const RAMP_LEN = 45;          // climb zone half-length, in z units
 const OVER_GAP_FRAC = 0.493;  // open space below the sign, fraction of its height
+const COIN_R_BASE = 30;       // coin half-size, local units (was 17 — big now)
+const COIN_PICKUP_BASE = 58;  // coin pickup window, local units (was 46)
+const STREAK_N = 14;          // ground streaks rushing past (forward-motion cue)
 const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units (forgiving vs the wide hood)
 const PLAYER_HW_SLIDE_BASE = 40; // slide-pose hitbox half-width — the pose is stretched out
-const BG_HORIZON_FRAC = 0.40; // where the dirt path vanishes in bg-3d.png (fraction of image height)
+const BG_HORIZON_FRAC = 0.51; // where the dirt path vanishes in bg-3d.png (fraction of image height)
 
 /* ---------- responsive full-bleed layout ---------- */
 // Logical design height is 800 units; U scales it to the real viewport.
@@ -228,10 +238,8 @@ const bgImg = loadImg('art/bg-3d.png');
 const imgCoin = loadImg('art/coin-3d.png');
 const imgLow = loadImg('art/barrier-low-3d.png');
 const imgOver = loadImg('art/bar-over-3d.png');
-const imgTall = loadImg('art/stack-tall-3d.png');
-const imgPalm = loadImg('art/palm-3d.png');
-const imgUmbrella = loadImg('art/umbrella-3d.png');
-const imgHut = loadImg('art/hut-3d.png');
+/* suitcase staircase — run up it and over the top, never a wall to dodge */
+const imgRamp = loadImg('art/ramp-3d.png');
 /* run cycle: 4 frames of the bé cá from behind — the legs visibly move */
 const runFrames = [
   loadImg('art/beca-run-back.png'),   // frame 1: left leg forward
@@ -257,8 +265,8 @@ const S = {
   charX: CENTER_X,        // smoothed screen x
   jumpT: -1,              // jump timer (<0 = not jumping)
   slideT: -1,             // slide timer (<0 = not sliding)
-  entities: [],           // {kind:'low'|'over'|'tall'|'coin', lane, z, h, taken, passed}
-  decor: [],              // side decorations {side:-1|1, z, kind}
+  entities: [],           // {kind:'low'|'over'|'ramp'|'coin', lane, z, h, taken, passed}
+  streaks: [],            // ground streaks rushing past {x (lane units), z, dark}
   spawnAcc: 0,            // distance since last pattern
   nextGap: 58,
   patterns: 0,            // patterns spawned (test hook)
@@ -272,12 +280,26 @@ function saveBest(){ try { localStorage.setItem('becaRunBest', String(S.best)); 
 function speedNorm(){
   return Math.max(0, Math.min(1, (S.speed - SPEED_BASE) / (SPEED_MAX - SPEED_BASE)));
 }
+function runFps(){ return 8 + S.speed * 0.06; } // legs pump faster as speed rises
 function runFrameIndex(){
   if (S.mode !== 'playing') return 0;
   if (S.jumpT >= 0) return 1; // tucked legs while jumping
-  // legs pump faster as speed rises: ~13 fps at base speed, ~22 fps at max
-  const fps = 8 + S.speed * 0.06;
-  return Math.floor(S.runTime * fps) % 4;
+  // ~13 fps at base speed, ~22 fps at max
+  return Math.floor(S.runTime * runFps()) % 4;
+}
+/* Height while running up a suitcase staircase in the player's lane.
+   The ramp's centre is at e.z; the climb zone is |e.z| < RAMP_LEN:
+   rise smoothly to the top as it approaches, descend after passing. */
+function climbHeight(){
+  if (S.mode !== 'playing') return 0;
+  let h = 0;
+  const top = obstDims('ramp').h;
+  for (const e of S.entities) {
+    if (e.kind !== 'ramp' || e.lane !== S.lane) continue;
+    if (Math.abs(e.z) >= RAMP_LEN) continue;
+    h = Math.max(h, top * (1 - Math.abs(e.z) / RAMP_LEN));
+  }
+  return h;
 }
 
 /* ---------- perspective helpers ---------- */
@@ -287,12 +309,13 @@ function groundY(z){ return HORIZON_Y + (PLAYER_Y - HORIZON_Y) * scaleAt(z); }
 
 /* ---------- obstacle sizes: drawn size = collision size ---------- */
 function obstImg(kind){
-  return kind === 'low' ? imgLow : kind === 'over' ? imgOver : imgTall;
+  return kind === 'low' ? imgLow : kind === 'over' ? imgOver : imgRamp;
 }
 function obstDims(kind){
   // {w, h} in screen px at scale 1 — the size at the player's z.
   // The low fence is height-driven (low and wide, always jumpable);
-  // the sign and the stack are width-driven (wide, spilling across the ground).
+  // the sign and the staircase are width-driven (wide, spilling across
+  // the ground and onto the sides).
   const img = obstImg(kind);
   const aspect = imgReady(img) ? img.naturalWidth / img.naturalHeight : 1;
   if (kind === 'low') {
@@ -303,17 +326,20 @@ function obstDims(kind){
     const w = OVER_W_LANES * LANE_HALF;
     return { w, h: w / aspect };
   }
-  const w = TALL_W_LANES * LANE_HALF;
+  // ramp: width-driven; h is the climb height (top of the staircase)
+  const w = RAMP_W_LANES * LANE_HALF;
   return { w, h: w / aspect };
 }
 function lowBarH(){ return obstDims('low').h; }            // height the jump must clear
 function overGap(){ return obstDims('over').h * OVER_GAP_FRAC; } // room under the sign
+function rampH(){ return obstDims('ramp').h; }              // staircase top = climb height
 
 /* ---------- spawn fairness ---------- */
 // A row is fair if some lane lets the player through: stand (no overlap),
 // jump (overlap only with low fences), or slide (overlap only with overhead
-// signs). A tall stack in the way is always fatal, and overlapping a low
-// fence AND a sign at once is fatal (you cannot jump and slide together).
+// signs). A suitcase ramp never blocks — you just run up it — so it is
+// skipped here. Overlapping a low fence AND a sign at once is fatal
+// (you cannot jump and slide together).
 function lanePassable(lane, row){
   const ways = [
     { pw: PLAYER_HW,       kinds: [] },       // stand: nothing may touch the player
@@ -323,6 +349,7 @@ function lanePassable(lane, row){
   for (const way of ways) {
     let ok = true;
     for (const o of row) {
+      if (o.kind === 'ramp') continue; // a staircase is climbed, never a wall
       const d = obstDims(o.kind);
       const dx = Math.abs(lane - o.lane) * LANE_HALF;
       if (dx < d.w / 2 + way.pw && !way.kinds.includes(o.kind)) { ok = false; break; }
@@ -390,6 +417,13 @@ wrap.addEventListener('touchend', e => {
 }, { passive:false });
 wrap.addEventListener('touchmove', e => { if (e.target.closest('button')) return; e.preventDefault(); }, { passive:false });
 
+/* Ground streaks: thin dirt dashes on the brown ground that rush past
+   at world speed — the main "running FORWARD" cue. */
+function newStreak(anyZ){
+  return { x: -2 + Math.random() * 4, z: anyZ ? Math.random() * 260 : 230 + Math.random() * 60,
+           dark: Math.random() < 0.5 };
+}
+
 /* ---------- spawning ---------- */
 function spawnPattern(){
   // Pick a pattern that always leaves a fair way through.
@@ -416,25 +450,25 @@ function spawnPattern(){
     addObst('over', lanes[0]);
     for (let i = 0; i < 4; i++) addCoin(lanes[1], SPAWN_Z + i*12, 0);
   } else if (r < 0.64) {
-    // tall stack on one lane, low fence on another, third lane free
-    addObst('tall', lanes[0]);
-    addObst('low', lanes[1]);
-  } else if (r < 0.74) {
-    // two tall stacks, one free lane with coins
-    addObst('tall', lanes[0]);
-    addObst('tall', lanes[1]);
-    for (let i = 0; i < 4; i++) addCoin(lanes[2], SPAWN_Z + 6 + i*12, 0);
-  } else if (r < 0.84) {
-    // single tall stack + coins on another lane
-    // (double-low and triple rows removed — An wants the track sparser,
-    //  with clear breathing room between obstacle groups)
-    addObst('tall', lanes[0]);
+    // suitcase staircase on one lane + coins on another — just run up it
+    addObst('ramp', lanes[0]);
     for (let i = 0; i < 4; i++) addCoin(lanes[1], SPAWN_Z + i*12, 0);
+  } else if (r < 0.74) {
+    // staircase on one lane, low fence on another — jump the fence,
+    // or let the staircase carry you over it
+    addObst('ramp', lanes[0]);
+    addObst('low', lanes[1]);
+  } else if (r < 0.84) {
+    // staircase on one lane + a coin arc to jump for on another lane
+    addObst('ramp', lanes[0]);
+    addCoin(lanes[1], SPAWN_Z, 0);
+    addCoin(lanes[1], SPAWN_Z + 12, 75);
+    addCoin(lanes[1], SPAWN_Z + 24, 0);
   } else {
     // coin arc: jump for the middle coin
     const L = lanes[0];
     addCoin(L, SPAWN_Z, 0);
-    addCoin(L, SPAWN_Z + 12, 55);
+    addCoin(L, SPAWN_Z + 12, 75);
     addCoin(L, SPAWN_Z + 24, 0);
     addObst('low', lanes[1], SPAWN_Z + 6);
   }
@@ -450,14 +484,8 @@ function spawnPattern(){
     const idx = S.entities.indexOf(dropped);
     if (idx >= 0) S.entities.splice(idx, 1);
   }
-  // side decoration (palm / umbrella / hut) — a little denser now so the
-  // sides of the wide dirt ground do not feel empty
-  S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 20,
-                 kind: ['palm','umbrella','hut'][Math.floor(Math.random()*3)] });
-  if (Math.random() < 0.45) {
-    S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 60,
-                   kind: ['palm','umbrella','hut'][Math.floor(Math.random()*3)] });
-  }
+  // No side decoration any more — An wants a clean ground: the big
+  // obstacles spilling edge-to-edge fill the sides, not little props.
 }
 
 /* ---------- game flow ---------- */
@@ -467,7 +495,9 @@ function startGame(){
   S.score = 0; S.coins = 0;
   S.lane = 0; S.charX = CENTER_X;
   S.jumpT = -1; S.slideT = -1;
-  S.entities = []; S.decor = [];
+  S.entities = [];
+  S.streaks = [];
+  for (let i = 0; i < STREAK_N; i++) S.streaks.push(newStreak(true));
   S.spawnAcc = 0; S.nextGap = 95;  // first pattern after a clear opening stretch
   S.patterns = 0;
   S.over = false; S.newBest = false;
@@ -538,12 +568,16 @@ function update(dt){
   // move entities toward player
   const dz = S.speed * dt;
   for (const e of S.entities) e.z -= dz;
-  for (const d of S.decor) d.z -= dz;
   S.entities = S.entities.filter(e => e.z > -30);
-  S.decor = S.decor.filter(d => d.z > -30);
+  // ground streaks rush past at world speed, then recycle far ahead
+  for (const st of S.streaks) {
+    st.z -= dz;
+    if (st.z < -8) { const ns = newStreak(false); st.x = ns.x; st.z = ns.z; st.dark = ns.dark; }
+  }
 
   // collisions / pickups in the hit zone
-  const pH = jumpHeight();
+  // effective height = jump + staircase climb (the ramp carries you up)
+  const pH = jumpHeight() + climbHeight();
   const pw = isSliding() ? PLAYER_HW_SLIDE : PLAYER_HW;
   for (const e of S.entities) {
     if (e.taken || e.passed) continue;
@@ -551,7 +585,7 @@ function update(dt){
     if (e.kind === 'coin') {
       if (e.lane !== S.lane) continue;
       const coinH = (e.h || 0) * U;
-      if (Math.abs(pH - coinH) < 46 * U) { e.taken = true; S.coins++; updateHUD(); }
+      if (Math.abs(pH - coinH) < COIN_PICKUP_BASE * U) { e.taken = true; S.coins++; updateHUD(); }
       continue;
     }
     // Obstacle: horizontal overlap from the DRAWN width — what you see is
@@ -567,8 +601,8 @@ function update(dt){
     } else if (e.kind === 'over') {
       if (!isSliding()) { gameOver(); return; }
       e.passed = true;
-    } else if (e.kind === 'tall') {
-      gameOver(); return;
+    } else if (e.kind === 'ramp') {
+      // a staircase is climbed, never crashed into — nothing to do here
     }
   }
   updateHUD();
@@ -592,36 +626,67 @@ function drawBackground(){
     ctx.fillRect(0, 0, VW, VH);
   }
 }
-function drawDecor(d){
-  const s = scaleAt(d.z);
-  if (s < 0.12) return;
-  const img = d.kind === 'palm' ? imgPalm : d.kind === 'umbrella' ? imgUmbrella : imgHut;
-  if (!imgReady(img)) return;
-  const sideX = d.side < 0 ? VW * 0.07 : VW * 0.93;
-  const x = CENTER_X + (sideX - CENTER_X) * s;
-  const y = groundY(d.z);
-  // local size (at s=1): palm tall, umbrella medium, hut wide
-  const h = (d.kind === 'palm' ? 150 : d.kind === 'umbrella' ? 130 : 110) * U;
-  const w = h * (img.naturalWidth / img.naturalHeight);
+/* Ground streaks — thin dirt dashes rushing past on the brown ground.
+   This is the main "running FORWARD" cue: the ground itself moves fast
+   under bé cá's feet, so she cannot read as jogging in place. */
+function drawStreaks(){
+  if (S.mode !== 'playing') return;
   ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(s, s);
-  ctx.drawImage(img, -w / 2, -h, w, h);
+  ctx.lineCap = 'round';
+  for (const st of S.streaks) {
+    const s = scaleAt(st.z);
+    if (s < 0.08) continue;
+    // lateral position converges toward the vanishing point with distance,
+    // exactly like the ground does
+    const x = CENTER_X + st.x * LANE_HALF * s;
+    const y = groundY(st.z);
+    const len = 30 * U * s;
+    ctx.strokeStyle = st.dark ? 'rgba(120, 84, 44, 0.45)' : 'rgba(214, 176, 128, 0.5)';
+    ctx.lineWidth = Math.max(1, 3.5 * U * s);
+    ctx.beginPath();
+    ctx.moveTo(x - len / 2, y);
+    ctx.lineTo(x + len / 2, y);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 function drawCoin(e){
   if (!imgReady(imgCoin)) return;
   const s = scaleAt(e.z);
   const x = laneX(e.lane, e.z);
-  const y = groundY(e.z) - (e.h || 0) * U * s - 26 * U * s;
+  const y = groundY(e.z) - (e.h || 0) * U * s - 34 * U * s;
   const spin = Math.abs(Math.cos(S.time * 6 + e.z * 0.2));
   const sx = 0.25 + 0.75 * spin; // spin squash
-  const r = 17 * U; // local half-size
+  const r = COIN_R_BASE * U; // BIG now — 30 (was 17), a proper reward
+  // pulsing golden glow behind the coin, so it sparkles as it approaches
+  const glow = 0.28 + 0.18 * Math.sin(S.time * 6 + e.z * 0.5);
+  const gg = ctx.createRadialGradient(x, y, 0, x, y, r * 2.4 * s);
+  gg.addColorStop(0, 'rgba(255, 215, 0, ' + glow.toFixed(3) + ')');
+  gg.addColorStop(1, 'rgba(255, 215, 0, 0)');
+  ctx.fillStyle = gg;
+  ctx.beginPath(); ctx.arc(x, y, r * 2.4 * s, 0, Math.PI * 2); ctx.fill();
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s * sx, s);
   ctx.drawImage(imgCoin, -r, -r, r * 2, r * 2);
   ctx.restore();
+  // twinkling 4-point star glint at the coin's upper right
+  const tw = 0.6 + 0.4 * Math.sin(S.time * 8 + e.z * 0.7);
+  const gs = r * 0.55 * s * tw;
+  if (gs > 2) {
+    ctx.save();
+    ctx.translate(x + r * 0.55 * s, y - r * 0.6 * s);
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(0, -gs);
+    ctx.quadraticCurveTo(0, 0, gs, 0);
+    ctx.quadraticCurveTo(0, 0, 0, gs);
+    ctx.quadraticCurveTo(0, 0, -gs, 0);
+    ctx.quadraticCurveTo(0, 0, 0, -gs);
+    ctx.fill();
+    ctx.restore();
+  }
 }
 function drawObstacle(e){
   const s = scaleAt(e.z);
@@ -648,16 +713,20 @@ function drawCharacter(){
   if (!imgReady(img)) return;
   const norm = speedNorm();
   const bobFreq = 9 + S.speed * 0.05;      // bob quickens with speed
-  const bobAmp = (3 + norm * 2) * U;       // bob grows a little with speed
+  const bobAmp = (4 + norm * 3) * U;       // bigger bob — energetic pumping
   const bob = sliding ? 0 : Math.sin(S.time * bobFreq) * bobAmp;
-  const pH = jumpHeight();
+  const pH = jumpHeight() + climbHeight(); // jump + staircase climb
   const h = sliding ? SLIDE_H_BASE * U : CHAR_H;
   const w = h * (img.naturalWidth / img.naturalHeight);
-  const feetY = PLAYER_Y - pH + bob;
+  // forward lunge: once per stride cycle the body surges toward the
+  // horizon, so she reads as running FORWARD, not jogging in place
+  const cyclePhase = (S.runTime * runFps() / 4) % 1;
+  const lunge = sliding ? 0 : Math.max(0, Math.sin(cyclePhase * Math.PI * 2)) * 5 * U;
+  const feetY = PLAYER_Y - pH + bob - lunge;
   // leans forward more as the race builds — a real race, not a jog.
   // The slide pose already leans back on its own, so no extra tilt.
-  const lean = 0.05 + norm * 0.10;
-  const tilt = sliding ? 0 : Math.sin(S.time * bobFreq) * 0.03 + lean;
+  const lean = 0.08 + norm * 0.14;
+  const tilt = sliding ? 0 : Math.sin(S.time * bobFreq) * 0.05 + lean;
   // soft shadow (wider while sliding — the pose is stretched out)
   const shScale = Math.max(0.35, 1 - pH / (220 * U));
   const shW = (sliding ? 50 : 34) * U * shScale;
@@ -676,8 +745,8 @@ function drawCharacter(){
 function speedLineState(){
   if (S.mode !== 'playing') return { count: 0, alpha: 0 };
   const norm = speedNorm();
-  if (norm <= 0.02) return { count: 0, alpha: 0 };
-  return { count: Math.floor(4 + norm * 10), alpha: 0.10 + norm * 0.25 };
+  if (norm <= 0.01) return { count: 0, alpha: 0 };
+  return { count: Math.floor(6 + norm * 14), alpha: 0.15 + norm * 0.30 };
 }
 function drawSpeedLines(){
   const st = speedLineState();
@@ -687,14 +756,14 @@ function drawSpeedLines(){
   ctx.globalAlpha = st.alpha;
   ctx.strokeStyle = '#ffffff';
   ctx.lineCap = 'round';
-  ctx.lineWidth = 2 + speedNorm() * 2;
+  ctx.lineWidth = 2 + speedNorm() * 3;
   for (let i = 0; i < st.count; i++) {
     const seed = i * 137.5;
     const left = (i % 2 === 0);
     const xFrac = left ? 0.02 + ((seed * 0.37) % 1) * 0.10
                        : 0.88 + ((seed * 0.53) % 1) * 0.10;
     const x = VW * xFrac;
-    const len = VH * (0.08 + speedNorm() * 0.12);
+    const len = VH * (0.10 + speedNorm() * 0.14);
     let y = (seed * 1.7 + S.time * speedPx) % (VH + len);
     y -= len;
     ctx.beginPath();
@@ -709,9 +778,7 @@ function draw(){
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, VW, VH);
   drawBackground();
-  // decor sorted far -> near
-  const dec = S.decor.slice().sort((a,b) => b.z - a.z);
-  for (const d of dec) drawDecor(d);
+  drawStreaks(); // the rushing ground — the forward-motion cue
   // entities sorted far -> near
   const ents = S.entities.slice().sort((a,b) => b.z - a.z);
   for (const e of ents) {
@@ -748,17 +815,19 @@ window.__becaRun = {
   laneX, groundY, scaleAt,
   runFrame: runFrameIndex,
   speedNorm, speedLines: speedLineState,
-  obstDims, lanePassable, rowIsFair, lowBarH, overGap,
+  obstDims, lanePassable, rowIsFair, lowBarH, overGap, rampH, climbHeight,
+  streaks(){ return S.streaks; },
   layout(){ return { VW, VH, U, CENTER_X, HORIZON_Y, PLAYER_Y, LANE_HALF,
                      CHAR_H, LOW_BAR_H: lowBarH(), OVER_GAP: overGap(),
+                     RAMP_H: rampH(), RAMP_W: obstDims('ramp').w,
+                     OVER_W: obstDims('over').w, COIN_R: COIN_R_BASE * U,
                      SPEED_BASE, SPEED_MAX, SLIDE_H: SLIDE_H_BASE * U,
                      PLAYER_HW, PLAYER_HW_SLIDE }; },
   resize,
   assets(){
     return {
       bg: imgReady(bgImg), coin: imgReady(imgCoin),
-      low: imgReady(imgLow), over: imgReady(imgOver), tall: imgReady(imgTall),
-      palm: imgReady(imgPalm), umbrella: imgReady(imgUmbrella), hut: imgReady(imgHut),
+      low: imgReady(imgLow), over: imgReady(imgOver), ramp: imgReady(imgRamp),
       run: runFrames.map(imgReady),
       slide: imgReady(imgSlide),
     };
