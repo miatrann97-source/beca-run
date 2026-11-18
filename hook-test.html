@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>hook test</title><style>html,body{margin:0;height:100%;background:#000}iframe{border:0;display:block;width:480px;height:800px;margin:0 auto}</style></head><body>
+<iframe id="f" src="beca-run.html"></iframe>
+<script>
+var f=document.getElementById('f');
+f.addEventListener('load',function(){
+var w=f.contentWindow;var H=w.__becaRun;if(!H){document.title='NO HOOK';return;}
+H.start();H.skipCutscene();
+var S=H.S;
+S.entities=[{kind:'train',lane:-1,z:-60,len:200,color:'red',ramp:false},{kind:'train',lane:1,z:-30,len:180,color:'blue',ramp:false}];
+S.lane=0;
+setTimeout(function(){H.over();},300);
+});
+</script></body></html>
