@@ -128,16 +128,16 @@
     </div>
   </div>
 
-  <div id="hint" class="hidden">Vuốt ◀ ▶ đổi làn · ▲ nhảy lên tàu · ▼ trượt dưới rào · Lượm xu vàng!</div>
+  <div id="hint" class="hidden">Vuốt ◀ ▶ đổi làn · ▲ nhảy lên tàu / cầu thang vàng · ▼ trượt dưới rào · Lượm xu vàng!</div>
 
   <div id="menu" class="overlay">
     <div class="title">BÉ CÁ<br>CHẠY</div>
-    <div class="subtitle">Sói đuổi ngay sau lưng — nhảy lên tàu, trượt dưới rào, lượm xu vàng!</div>
-    <div class="subtitle-en">The wolf is right behind you — jump on trains, slide under bars, grab gold coins!</div>
+    <div class="subtitle">Sói đuổi ngay sau lưng — nhảy lên tàu hay chạy lên cầu thang vàng, trượt dưới rào, lượm xu vàng!</div>
+    <div class="subtitle-en">The wolf is right behind you — jump on trains or run up the yellow stairs, slide under bars, grab gold coins!</div>
     <img class="hero" src="art/beca-run-front.png" alt="Bé cá">
     <div class="howto">
       <span class="k">◀ ▶</span> hoặc vuốt ngang: đổi làn<br>
-      <span class="k">▲</span> / chạm màn hình: nhảy qua rào, nhảy lên nóc tàu<br>
+      <span class="k">▲</span> / chạm màn hình: nhảy qua rào, nhảy lên nóc tàu — hoặc chạy lên cầu thang vàng ở đuôi tàu<br>
       <span class="k">▼</span> / vuốt xuống: trượt dưới rào cao<br>
       Lượm <b>xu vàng</b> để cộng điểm!<br>
       7 giây đầu sói đuổi ngay sau lưng — đừng để bị bắt!
@@ -206,6 +206,14 @@
      early on buttons), full-screen edge-to-edge, best score in
      localStorage, smooth lane switching, fairness safety net.
    No screen shake anywhere (gentle motion only).
+   v13: trains are SOLID boxes (both ends capped + a solid
+   backing behind the rear-face art, whose transparent side
+   margins used to show the background through); ~half the
+   trains trail a yellow-edged STAIRCASE behind the rear face
+   so the player can walk up onto the roof and reach the roof
+   coins (roof coins now mostly on stair trains); camera
+   lowered a touch (PLAYER_Y 0.69 -> 0.70*VH, horizon 0.3125
+   -> 0.29*VH) so the character and the track read bigger.
    ============================================================ */
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -219,27 +227,49 @@ const CHAR_H_BASE = 150;    // character height, logical px — small like Jake
 const SPAWN_Z = 300;        // spawn distance ahead (1.3 s of warning at max speed — a jump commits 1.02 s, so the player must see the row they will land into before jumping)
 const HIT_Z = 9;            // z window where collisions / pickups count
 const LANE_LERP = 22;       // lane-change smoothing rate
-const PLAYER_Y_FRAC = 0.69; // bé cá's feet: up the screen, ahead of the wolf
-/* v12: the low barrier is 1.35 lanes wide, height from its real aspect
-   (931x320 = 2.909) — ~55 local units tall, a proper hurdle,
-   well below the jump apex. Drawn size = collision size. */
-const LOW_W_LANES = 1.35;
-/* v12: the overhead barrier is 1.45 lanes wide, height from its real aspect
-   (600x420 = 1.4286) — ~120 local tall. The red-white bar sits in
-   the top ~20% of the sprite (measured with PIL: bar rows y 10-85
-   of 420), so the CLEAR GAP underneath is ~0.795 of the height,
-   ~95 local units — standing (150) or jumping into it crashes,
-   sliding (collision height 70) passes cleanly with 25 to spare. */
-const OVER_W_LANES = 1.45;
+const PLAYER_Y_FRAC = 0.70; // bé cá's feet: up the screen, ahead of the wolf (v13: camera lowered a touch, was 0.69)
+const HORIZON_Y_FRAC = 0.29; // vanishing point: higher up now (v13, was 0.3125) — more ground/track visible, character reads bigger
+/* v13: obstacle heights are FIXED in local units (height-based,
+   so they are identical on every screen aspect): the jump apex
+   (213 local) and the slide height (70 local) are local too, so
+   the roof must stay jumpable and the overhead gap slidable at
+   any aspect. Heights used to derive from the lane width
+   (LANE_HALF), so on a wide desktop the roof grew to 222 local
+   — above the 213 jump apex — and the roof was unreachable by
+   jumping. Widths now derive from the art aspect ratios, so on
+   the iPhone (390x844) the sizes are pixel-identical to before.
+   - low barrier: 54.9 local tall (was 1.35 lanes wide, art 931x320 = 2.909)
+   - overhead bar: 120.1 local tall (was 1.45 lanes wide, art 600x420 = 1.4286);
+     the red-white bar sits in the top ~20% of the sprite
+     (measured with PIL: bar rows y 10-85 of 420), so the CLEAR
+     GAP underneath is ~0.795 of the height, ~95 local units —
+     standing (150) or jumping into it crashes, sliding
+     (collision height 70) passes cleanly with 25 to spare.
+   - trains: roof 177.4 local high (was 1.0 lane wide, rear-face
+     art 400x600, aspect 2:3), comfortably below the jump apex
+     (213 local, margin ~36). Length 150-250 z units. */
+const LOW_BAR_H_LOCAL = 54.9;
+const OVER_H_LOCAL = 120.1;
 const OVER_GAP_FRAC = 0.795;
-/* v12: Trains are 1.0 lane wide (they fill the whole track, easier
-   to see), rear-face art 400x600 (aspect 2:3), so the roof is
-   ~177 local units high — comfortably below the jump apex
-   (213 local, margin ~36). Length 150-250 z units. */
-const TRAIN_W_LANES = 1.0;
+const TRAIN_ROOF_H_LOCAL = 177.4;
 const TRAIN_ASPECT = 1.5;   // rear-face art height / width (600/400)
 const TRAIN_LEN_MIN = 150;
 const TRAIN_LEN_MAX = 250;
+/* v13: stairs (cầu thang) up the back of SOME trains, so the roof
+   coins are reachable without a perfect jump — An asked for a
+   real staircase (she wanted one for the suitcase stack in v6
+   too). The staircase trails behind the train's rear face: the
+   player walks up it as the train approaches, reaching roof
+   height a little before the rear face arrives (RAMP_TOP > the
+   9-unit hit window, so the normal roof-landing rule carries
+   them onto the roof), then it stays flat to the rear face. */
+const RAMP_LEN = 60;       // staircase length behind the rear face, z units
+const RAMP_TOP = 12;       // flat full-height part before the rear face
+const RAMP_CHANCE = 0.5;   // ~half the trains have stairs
+const RAMP_STEPS = 6;      // visible steps up the rising part
+const RAMP_W_FRAC = 0.6;   // stairs span the middle 60% of the train width (rear face stays visible either side)
+const RAMP_COLOR = '#e8b23a'; // warm stair yellow
+const RAMP_EDGE = '#ffe082';  // bright yellow step edges
 /* Gold coins: ~55 local tall, plain gold, no glow. Pickup window
    55 local (generous, like the video's coin arcs). */
 const COIN_H_BASE = 55;
@@ -338,7 +368,7 @@ function resize(w, h){
   }
   VW = vw; VH = vh; U = VH / 800;
   CENTER_X = VW / 2;
-  HORIZON_Y = VH * 0.3125;
+  HORIZON_Y = VH * HORIZON_Y_FRAC;
   PLAYER_Y = VH * PLAYER_Y_FRAC;
   LANE_HALF = Math.min(VW * 0.32, VH * 0.185);
   CHAR_H = CHAR_H_BASE * U;
@@ -516,16 +546,17 @@ function obstDims(kind){
     return { w: h, h };
   }
   if (kind === 'train') {
-    const w = TRAIN_W_LANES * LANE_HALF;
-    return { w, h: w * TRAIN_ASPECT };
+    // height fixed in local units; width from the art aspect (v13)
+    const h = TRAIN_ROOF_H_LOCAL * U;
+    return { w: h / TRAIN_ASPECT, h };
   }
   if (kind === 'over') {
-    const w = OVER_W_LANES * LANE_HALF;
-    return { w, h: w / (600 / 420) };
+    const h = OVER_H_LOCAL * U;
+    return { w: h * (600 / 420), h };
   }
-  // low barrier: width-driven, height from its real aspect (931x320)
-  const w = LOW_W_LANES * LANE_HALF;
-  return { w, h: w / (931 / 320) };
+  // low barrier: height fixed in local units, width from its real aspect (931x320)
+  const h = LOW_BAR_H_LOCAL * U;
+  return { w: h * (931 / 320), h };
 }
 function lowBarH(){ return obstDims('low').h; }            // height the jump must clear
 function trainRoofHpx(){ return obstDims('train').h; }     // train roof height, screen px
@@ -539,10 +570,33 @@ function jumpHeight(){
   return S.jumpBase + Math.max(0, JUMP_V * t - 0.5 * JUMP_G * t * t);
 }
 /* The player's feet height right now: on a train roof it is the
-   roof height, in the air it is the jump height, on the ground 0. */
+   roof height, in the air it is the jump height, on a staircase
+   it is the stair height under their feet, on the ground 0. */
 function playerH(){
   if (S.onTrain) return trainRoofHpx();
-  return jumpHeight();
+  if (S.jumpT >= 0) return jumpHeight();
+  return rampH();
+}
+/* v13: the staircase (cầu thang) trailing behind a train's rear
+   face. While the player stands on the ground in the train's
+   lane with the rear face 0..RAMP_LEN ahead, the stairs lift
+   them: 0 at the foot (e.z = RAMP_LEN), full roof height once
+   e.z <= RAMP_TOP, flat at roof height up to the rear face —
+   where the normal roof-landing rule carries them onto the roof. */
+function rampTrainUnderPlayer(){
+  for (const e of S.entities) {
+    if (e.kind !== 'train' || !e.ramp) continue;
+    if (e.lane !== S.lane) continue;
+    if (e.z < 0 || e.z > RAMP_LEN) continue;
+    return e;
+  }
+  return null;
+}
+function rampH(){
+  const t = rampTrainUnderPlayer();
+  if (!t) return 0;
+  const f = Math.min(1, (RAMP_LEN - t.z) / (RAMP_LEN - RAMP_TOP));
+  return trainRoofHpx() * Math.max(0, f);
 }
 function isSliding(){ return S.slideT >= 0; }
 /* The train (if any) whose roof is under the player right now:
@@ -582,7 +636,10 @@ function lanePassable(lane, row){
   const k = overlaps[0].kind;
   if (k === 'low') return true;   // jump
   if (k === 'over') return true;  // slide
-  if (k === 'train') return jumpApex() >= trainRoofHpx() + 25 * U; // roof reachable
+  // v13: a train WITH stairs is passable by walking up them (no
+  // jump needed); a stairless train still needs the jump to
+  // reach the roof.
+  if (k === 'train') return overlaps[0].ramp === true || jumpApex() >= trainRoofHpx() + 25 * U; // roof reachable
   return false;
 }
 function passableLanes(row){ return [-1, 0, 1].filter(l => lanePassable(l, row)); }
@@ -609,8 +666,10 @@ function doJump(){
   if (S.mode !== 'playing') return;
   if (S.slideT >= 0) return; // mid-slide: too low to jump
   if (S.jumpT < 0) {
-    // Jumping off a train roof starts from the roof height.
-    S.jumpBase = S.onTrain ? trainRoofHpx() : 0;
+    // Jumping starts from wherever the feet are: the ground, a
+    // train roof, or halfway up the stairs (jumpBase = the
+    // current feet height, so a jump off the stairs keeps it).
+    S.jumpBase = playerH();
     S.onTrain = null;
     S.jumpT = 0;
   }
@@ -619,6 +678,7 @@ function doSlide(){
   if (S.mode !== 'playing') return;
   if (S.jumpT >= 0) return; // mid-jump: cannot slide
   if (S.onTrain) return;     // on a roof: nothing to slide under
+  if (rampH() > 0) return;   // on the stairs: cannot slide (see update: sliding INTO the stairs stands the player back up)
   if (S.slideT >= 0) return; // already sliding
   if (S.slideCd > 0) return; // cooldown — no spamming
   S.slideT = 0;
@@ -673,11 +733,17 @@ wrap.addEventListener('click', e => {
 /* ---------- spawning ---------- */
 /* Lanes a train already spans at the spawn line — a new train or a
    ground obstacle must not be placed there (it would sit inside
-   the train's body). */
+   the train's body). v13: a lane whose STAIRCASE covers the
+   spawn line is blocked too — otherwise a barrier could spawn
+   inside the stairs, and a player climbing them (not sliding,
+   slides are refused on stairs) would crash into an overhead
+   bar they cannot duck under. */
 function trainBlockedLanes(){
   const out = [];
   for (const l of [-1, 0, 1]) {
-    if (S.entities.some(e => e.kind === 'train' && e.lane === l && e.z <= SPAWN_Z && e.z + e.len >= SPAWN_Z)) out.push(l);
+    if (S.entities.some(e => e.kind === 'train' && e.lane === l &&
+        ((e.z <= SPAWN_Z && e.z + e.len >= SPAWN_Z) ||
+         (e.ramp && e.z - RAMP_LEN <= SPAWN_Z && e.z >= SPAWN_Z)))) out.push(l);
   }
   return out;
 }
@@ -686,10 +752,17 @@ function addTrain(lane){
     kind: 'train', lane, z: SPAWN_Z,
     len: TRAIN_LEN_MIN + Math.random() * (TRAIN_LEN_MAX - TRAIN_LEN_MIN),
     color: TRAIN_COLOR_LIST[Math.floor(Math.random() * TRAIN_COLOR_LIST.length)],
+    ramp: Math.random() < RAMP_CHANCE, // v13: ~half the trains trail a staircase up the back
   };
   S.entities.push(e);
   S.trainCount++;
   return e;
+}
+/* Roof coins go mostly to stair trains (reachable on foot) and
+   only sometimes to jump-only trains (for players who like the
+   jump). */
+function addRoofCoinsFor(t){
+  if (Math.random() < (t.ramp ? 0.85 : 0.15)) addRoofCoins(t);
 }
 /* A line of coins along a train's roof (collected while riding it). */
 function addRoofCoins(t){
@@ -746,12 +819,12 @@ function spawnPattern(){
   };
   if (r < 0.20) {
     // one train (sometimes with roof coins)
-    if (free.length) { const t = addTrainRow(free[0]); if (Math.random() < 0.5) addRoofCoins(t); }
+    if (free.length) { const t = addTrainRow(free[0]); addRoofCoinsFor(t); }
     else addLow(lanes[0]);
   } else if (r < 0.34) {
     // one train + one low barrier in another lane
-    if (free.length >= 2) { const t = addTrainRow(free[0]); if (Math.random() < 0.5) addRoofCoins(t); addLow(free[1]); }
-    else if (free.length === 1) { const t = addTrainRow(free[0]); if (Math.random() < 0.5) addRoofCoins(t); }
+    if (free.length >= 2) { const t = addTrainRow(free[0]); addRoofCoinsFor(t); addLow(free[1]); }
+    else if (free.length === 1) { const t = addTrainRow(free[0]); addRoofCoinsFor(t); }
     else addLow(lanes[0]);
   } else if (r < 0.44) {
     // two trains, third lane free (sometimes with a coin line there)
@@ -961,6 +1034,12 @@ function update(dt){
     if (S.slideT >= SLIDE_DUR) { S.slideT = -1; S.slideCd = SLIDE_CD; }
   }
   if (S.slideCd > 0) S.slideCd -= dt;
+  // v13: sliding INTO a staircase stands the player back up —
+  // you cannot slide up stairs. (Starting a slide ON the stairs
+  // is refused in doSlide.) Without this, a sliding player would
+  // be lifted by the stairs while still in the slide pose and
+  // would then crash into the train's rear face at ground height.
+  if (S.slideT >= 0 && rampH() > 0) { S.slideT = -1; S.slideCd = 0; }
 
   // roof riding: the player runs along the roof with the train.
   // They stay until the train's far end passes them, or they jump
@@ -1012,8 +1091,8 @@ function update(dt){
       if (S.onTrain) continue; // already riding a roof
       // Trains are checked by LANE, not by the lerping x: the game
       // thinks in discrete lanes everywhere else (spawn fairness,
-      // lanePassable, the switch itself), and the train fills its
-      // whole lane (1.0 lane wide). A charX check would kill the
+      // lanePassable, the switch itself), and the train fills most
+      // of its lane. A charX check would kill the
       // player mid-switch while switching OFF a roof beside the
       // train they were just riding (their x is still inside the
       // train's width for ~4 frames) — and would let a player
@@ -1177,7 +1256,7 @@ function drawTrain(e){
   // A long colourful train occupying one track: the rear-face art
   // sprite at z (the back of the train), the ROOF as a flat
   // coloured trapezoid from the rear face toward the horizon, and
-  // darker side quads. The train is 1.0 lane wide; its roof is
+  // darker side quads. The train fills most of its lane; its roof is
   // ~177 local units high — reachable by the jump (apex ~213).
   // v12: while the train passes the player its rear face goes far
   // behind (e.z << 0), where the perspective scale flips negative
@@ -1202,6 +1281,18 @@ function drawTrain(e){
   // VISIBLE face, not the transparent margins
   const cHalf = 0.4225, cHalf2 = 0.4225;
   const c = TRAIN_COLORS[e.color] || TRAIN_COLORS.red;
+  // v13: the train is a SOLID box — cap both ends so the player
+  // can never see into a hollow shell. The far cap closes the
+  // front of the train; the near cap closes the cross-section at
+  // the player's plane once the rear face has passed (e.z < 0),
+  // when the rear-face sprite is gone and the cut would
+  // otherwise gape open — that open cut is what read as
+  // "see-through" when running alongside a passing train.
+  // The caps are drawn first: the sides and roof share their
+  // edges, and the character/wolf are drawn later, on top.
+  ctx.fillStyle = c.side;
+  ctx.fillRect(x2 - w2 * cHalf2, y2 - h2, w2 * cHalf2 * 2, h2); // far cap
+  if (e.z <= 0) ctx.fillRect(x - w * cHalf, y - h, w * cHalf * 2, h); // near cap (cut at the player's plane)
   // left side quad (darker)
   ctx.fillStyle = c.side;
   ctx.beginPath();
@@ -1229,8 +1320,55 @@ function drawTrain(e){
   ctx.closePath();
   ctx.fill();
   // rear face sprite (the back of the train, facing the player) —
-  // only while the face is still ahead of the player
-  if (e.z > 0 && imgReady(img)) ctx.drawImage(img, x - w / 2, y - h, w, h);
+  // only while the face is still ahead of the player. v13: a
+  // solid backing first — the art has transparent side margins
+  // (content is 338/400 of the width), and without it the two
+  // margin strips show the background through beside the face.
+  if (e.z > 0 && imgReady(img)) {
+    ctx.fillStyle = c.side;
+    ctx.fillRect(x - w / 2, y - h, w, h);
+    ctx.drawImage(img, x - w / 2, y - h, w, h);
+  }
+  // v13: the staircase trailing behind the train (nearer the
+  // camera than the body, so it draws after it)
+  if (e.ramp) drawRamp(e);
+}
+/* v13: the staircase (cầu thang) up the back of a train — the way
+   onto the roof without a perfect jump. Steps rise from the
+   ground at the foot (e.z - RAMP_LEN) to full roof height, flat
+   for the last RAMP_TOP units up to the rear face. The stairs
+   span the middle 60% of the train's width, so the rear face
+   stays visible on both sides. Each step is a solid front face
+   with a bright yellow top edge. Steps already behind the
+   player's plane (z < 0) are skipped — the player has climbed
+   past them. Drawn far -> near (platform first, foot last). */
+function drawRamp(e){
+  const d = obstDims('train');
+  const roofHLocal = d.h / U; // ~177 local
+  const rise = RAMP_LEN - RAMP_TOP;      // 48 units of climbing
+  const stepLen = rise / RAMP_STEPS;     // 8 units per step
+  const wFrac = RAMP_W_FRAC;
+  // one step face: a solid rect at its NEAR edge (closest to the
+  // player), where its front face is — plus its yellow top edge.
+  const face = (zNear, hLocal) => {
+    if (zNear < 0) return; // behind the player's plane: already climbed past
+    const s = scaleAt(zNear);
+    const x = laneX(e.lane, zNear), y = groundY(zNear);
+    const w = d.w * wFrac * s, h = hLocal * U * s;
+    ctx.fillStyle = RAMP_COLOR;
+    ctx.fillRect(x - w / 2, y - h, w, h);
+    ctx.fillStyle = RAMP_EDGE;
+    ctx.fillRect(x - w / 2, y - h, w, Math.max(2, 4 * U * s));
+  };
+  // flat top platform: full roof height, from RAMP_TOP before the
+  // rear face right up to it
+  face(e.z - RAMP_TOP, roofHLocal);
+  // the steps, top (nearest the train) to foot (nearest the player):
+  // step j covers z [e.z - RAMP_LEN + j*stepLen, e.z - RAMP_LEN + (j+1)*stepLen]
+  // at height roofH * (j+1)/RAMP_STEPS; its face is at its near edge.
+  for (let j = RAMP_STEPS - 1; j >= 0; j--) {
+    face(e.z - RAMP_LEN + j * stepLen, roofHLocal * (j + 1) / RAMP_STEPS);
+  }
 }
 /* Draw one wolf run frame at a FIXED CONTENT height, content feet
    anchored at feetY, centred on cx. The display height follows the
@@ -1279,11 +1417,16 @@ function drawSmoke(){
   ctx.restore();
 }
 function drawCharacter(){
-  const pH = jumpHeight();
-  const roofH = S.onTrain ? trainRoofHpx() : 0;
-  // soft shadow — on the ground, or on the roof while riding it
-  const shBase = PLAYER_Y - roofH;
-  const shScale = Math.max(0.35, 1 - (pH - roofH) / (220 * U));
+  // v13: feet height is the full player height (ground / stairs /
+  // roof / air) — on the stairs the feet stand on the steps, not
+  // on the ground below them.
+  const pH = playerH();
+  // soft shadow — on the surface the feet stand on (ground, stairs
+  // or roof). While jumping the shadow stays on the ground below,
+  // as before.
+  const surfaceH = S.onTrain ? trainRoofHpx() : (S.jumpT >= 0 ? 0 : rampH());
+  const shBase = PLAYER_Y - surfaceH;
+  const shScale = Math.max(0.35, 1 - (pH - surfaceH) / (220 * U));
   const shW = 34 * U * shScale;
   ctx.fillStyle = 'rgba(60,30,0,.28)';
   ctx.beginPath();
@@ -1509,7 +1652,7 @@ window.__becaRun = {
   skipCutscene,
   over: gameOver,
   moveLeft, moveRight, jump: doJump, slide: doSlide,
-  jumpHeight, jumpApex, isSliding, playerH,
+  jumpHeight, jumpApex, isSliding, playerH, rampH, rampTrainUnderPlayer,
   spawnPattern, trainUnderPlayer, landOnTrain,
   laneX, groundY, scaleAt, viewCX,
   runFrame: runFrameIndex,
@@ -1542,7 +1685,9 @@ window.__becaRun = {
                      WOLF_FEET_Y, WOLF_GAP_LOCAL: WOLF_GAP_LOCAL,
                      WOLF_GAP_PX: WOLF_GAP_LOCAL * U,
                      WOLF_X_OFF: WOLF_X_OFF * U, SMOKE_RATE, SMOKE_MAX,
-                     MULT_CAP, MULT_EVERY_M, PLAYER_Y_FRAC }; },
+                     MULT_CAP, MULT_EVERY_M, PLAYER_Y_FRAC,
+                     HORIZON_Y_FRAC,
+                     RAMP_LEN, RAMP_TOP, RAMP_CHANCE, RAMP_STEPS, RAMP_W_FRAC }; },
   resize,
   trackScroll(){ return trackScroll; },
   assets(){
