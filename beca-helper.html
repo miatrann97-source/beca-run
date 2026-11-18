@@ -19,13 +19,13 @@ var q=new URLSearchParams(location.search);
 var scene=q.get('scene')||'crash';
 var st=document.getElementById('st');
 var F=document.getElementById('f');
-var B=null,log=[],phase='start',tmpl=null,target=null,attempts=0,playT0=0,seenCols=[],lastHb=0,rideT0=0;
+var B=null,log=[],phase='start',tmpl=null,target=null,attempts=0,playT0=0,seenCols=[],lastHb=0,rideT0=0,placedT0=0,lastSeenStr='';
 function say(s){log.push(s);if(log.length>80)log.shift();st.textContent='['+scene+']\n'+log.join('\n');}
 function done(s){say('DONE '+s);phase='done';}
 function trains(){return B.S.entities.filter(function(e){return e.kind==='train';});}
-function clearLane0(maxZ,keep){var es=B.S.entities;for(var i=es.length-1;i>=0;i--){var e=es[i];if(e!==keep&&e.lane===0&&e.z<maxZ&&(e.kind==='train'||e.kind==='lowbar'||e.kind==='ramp'))es.splice(i,1);}}
+function clearHazards(keep){var es=B.S.entities,pl=B.S.lane;for(var i=es.length-1;i>=0;i--){var e=es[i];if(e!==keep&&e.lane===pl&&e.z<70&&(e.kind==='train'||e.kind==='lowbar'||e.kind==='over'||e.kind==='ramp'))es.splice(i,1);}}
 function steerTo(lane){var g=0;while(B.S.lane!==lane&&g++<5){if(B.S.lane<lane)B.moveRight();else B.moveLeft();}}
-function gap(){try{return B.wolfGap();}catch(e){return '?';}}
+function gap(){try{var w=B.wolfGap;var v=(typeof w==='function')?w():w;return JSON.stringify(v);}catch(e){return '?';}}
 F.addEventListener('load',function(){setTimeout(init,400);});
 function init(){
  try{B=F.contentWindow.__becaRun;}catch(e){say('hook ERR '+e);return;}
@@ -46,8 +46,8 @@ function step(){
  var S=B.S;
  if(phase==='start'){if(S.mode==='playing'){phase='run';playT0=Date.now();say('playing');}return;}
  if(phase==='done')return;
- if(S.mode==='over'&&scene!=='crash'){
-  say('UNEXPECTED OVER score='+S.score+' attempts='+attempts);
+ if(S.mode==='over'&&phase!=='waitover'){
+  say('UNEXPECTED OVER score='+S.score+' phase='+phase+' attempts='+attempts);
   if(++attempts>3){say('GIVING UP');phase='done';return;}
   B.start();B.skipCutscene();phase='start';tmpl=null;target=null;return;
  }
@@ -56,38 +56,50 @@ function step(){
  if(scene==='stairs')return stairsStep(S);
  if(scene==='breather')return breatherStep(S);
 }
+function placeCrashTrain(S){
+ clearHazards(null);
+ S.entities.push({kind:'train',lane:0,z:22,len:tmpl.len,color:tmpl.color,ramp:false});
+ S.spawnAcc=-1e9;placedT0=Date.now();
+ say('placed train lane0 z=22 len='+tmpl.len+' color='+tmpl.color);
+ phase='waitover';
+}
 function crashStep(S){
  if(phase==='run'){
+  clearHazards(null);
   var tr=trains();
   if(tr.length){
    var red=null,i;
    for(i=0;i<tr.length;i++){if(/red/i.test(String(tr[i].color)))red=tr[i];}
    var pick=red||(Date.now()-playT0>20000?tr[0]:null);
    if(pick){
+    tmpl={len:pick.len,color:pick.color};
     say('template len='+pick.len+' color='+pick.color+' ramp='+pick.ramp+' red='+(!!red));
-    clearLane0(60,null);
-    S.entities.push({kind:'train',lane:0,z:22,len:pick.len,color:pick.color,ramp:false});
-    S.spawnAcc=-1e9;
-    say('placed train lane0 z=22 len='+pick.len+' color='+pick.color);
-    phase='waitover';
+    placeCrashTrain(S);
    }else{
     for(i=0;i<tr.length;i++){if(seenCols.indexOf(String(tr[i].color))<0)seenCols.push(String(tr[i].color));}
-    say('waiting red... seen colors: '+seenCols.join(','));
+    var ss=seenCols.join(',');
+    if(ss!==lastSeenStr){lastSeenStr=ss;say('waiting red... seen colors: '+ss);}
    }
   }
   return;
  }
- if(phase==='waitover'&&S.mode==='over'){
-  var t0=trains().filter(function(e){return e.lane===0;}).map(function(e){return 'z='+e.z.toFixed(1)+' len='+e.len+' col='+e.color;}).join(' | ');
-  var d=F.contentDocument,nb=d.getElementById('newBest'),ov=d.querySelector('#gameover')||d.querySelector('#over');
-  say('OVER score='+S.score+' best='+S.best+' newBest='+S.newBest+' newBestHidden='+(nb?nb.classList.contains('hidden'):'?'));
-  say('overlay: '+(ov?ov.innerText.replace(/\s+/g,' ').slice(0,240):'NOT FOUND'));
-  say('lane0 trains: '+t0);
-  done('crash over');
+ if(phase==='waitover'){
+  if(S.mode==='over'){
+   var t0=trains().filter(function(e){return e.lane===0;}).map(function(e){return 'z='+e.z.toFixed(1)+' len='+e.len+' col='+e.color;}).join(' | ');
+   var d=F.contentDocument,nb=d.getElementById('newBest'),ov=d.querySelector('#gameover')||d.querySelector('#over');
+   say('OVER score='+S.score+' best='+S.best+' newBest='+S.newBest+' newBestHidden='+(nb?nb.classList.contains('hidden'):'?'));
+   say('overlay: '+(ov?ov.innerText.replace(/\s+/g,' ').slice(0,240):'NOT FOUND'));
+   say('lane0 trains: '+t0);
+   done('crash over');
+  }else if(Date.now()-placedT0>4000){
+   say('no crash after 4s, re-placing');
+   placeCrashTrain(S);
+  }
  }
 }
 function roofStep(S){
  if(phase==='run'){
+  clearHazards(target);
   if(S.onTrain){rideT0=Date.now();phase='riding';say('onTrain! z='+S.onTrain.z.toFixed(1)+' len='+S.onTrain.len+' col='+S.onTrain.color);return;}
   var tr=trains().filter(function(e){return e.z>14&&e.z<90;});
   if(tr.length){
@@ -99,6 +111,7 @@ function roofStep(S){
   return;
  }
  if(phase==='jumped'){
+  clearHazards(target);
   if(S.onTrain){rideT0=Date.now();phase='riding';say('onTrain! z='+S.onTrain.z.toFixed(1)+' len='+S.onTrain.len+' col='+S.onTrain.color);return;}
   if(!target||target.z<-5){phase='run';say('jump missed, retry');}
   return;
@@ -111,6 +124,7 @@ function roofStep(S){
 }
 function stairsStep(S){
  if(phase==='run'){
+  clearHazards(target);
   var RL=B.layout().RAMP_LEN;
   var cand=trains().filter(function(e){return e.ramp&&e.z>RL-2&&e.z<100;});
   if(cand.length){
