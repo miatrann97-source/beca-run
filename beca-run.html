@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Bé Cá Chạy — Endless Runner</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -10,27 +10,26 @@
   body {
     background:#7ec8f7;
     font-family:"Comic Sans MS","Chalkboard SE","Segoe UI",system-ui,sans-serif;
-    display:flex; justify-content:center; align-items:center;
     overflow:hidden;
     user-select:none; -webkit-user-select:none;
     touch-action:none;
   }
+  /* Full-bleed, Subway Surfers style: the game fills the WHOLE phone screen
+     edge-to-edge — no letterbox, no empty borders, no small box in the middle. */
   #wrap {
-    position:relative;
-    width:min(100vw, 480px);
-    height:min(100vh, 800px);
-    max-height:100vh;
-    aspect-ratio:3/5;
+    position:fixed; inset:0;
+    width:100vw; height:100vh; height:100dvh;
     overflow:hidden;
     background:#8fd3f4;
-    box-shadow:0 0 40px rgba(0,60,120,.35);
   }
   canvas { display:block; width:100%; height:100%; }
   /* ---------- HUD ---------- */
   #hud {
     position:absolute; top:0; left:0; right:0;
     display:flex; justify-content:space-between; align-items:flex-start;
-    padding:12px 14px 0; pointer-events:none; z-index:5;
+    padding:12px 14px 0;
+    padding:max(12px, env(safe-area-inset-top)) 14px 0;
+    pointer-events:none; z-index:5;
     color:#fff; text-shadow:0 2px 4px rgba(0,60,120,.55);
   }
   #hud .pill {
@@ -92,6 +91,7 @@
   /* ---------- in-game hint ---------- */
   #hint {
     position:absolute; left:0; right:0; bottom:18px; z-index:6;
+    bottom:max(18px, env(safe-area-inset-bottom));
     text-align:center; color:#fff; font-size:14px; font-weight:700;
     text-shadow:0 2px 4px rgba(0,40,90,.7); pointer-events:none;
     transition:opacity .6s ease;
@@ -147,27 +147,60 @@
 "use strict";
 /* ============================================================
    BÉ CÁ CHẠY — Subway Surfers-style endless runner
-   Pseudo-3D behind-view, 3 lanes, seaside boardwalk.
+   Full 3D world, camera behind the character, track filling the
+   whole screen edge-to-edge. A real race, not a jog.
    No screen shake anywhere (gentle motion only).
    ============================================================ */
-const W = 480, H = 800;
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+const wrap = document.getElementById('wrap');
 
-const HORIZON_Y = 250;      // vanishing point height
-const PLAYER_Y  = 692;      // character feet y
-const CENTER_X  = W / 2;
-const LANE_HALF = 132;      // lane offset at the bottom
-const PERSP_D   = 55;       // perspective distance constant
-const SPAWN_Z   = 210;      // spawn distance ahead
-const HIT_Z     = 9;        // z window where collisions count
-const CHAR_H    = 150;      // character height on screen (px at z=0)
-const JUMP_V    = 540;      // jump initial velocity (px/s)
-const JUMP_G    = 1500;     // gravity (px/s^2)
-const LOW_BAR_H = 56;       // low barrier height at player scale
-const OVER_GAP  = 72;       // gap under overhead bar at player scale
-const SLIDE_T   = 0.75;     // slide duration (s)
-const SLIDE_SY  = 0.42;     // slide squash
+/* ---------- tuning (Subway Surfers feel) ---------- */
+const SPEED_BASE = 85;      // was 55 — the race starts fast
+const SPEED_MAX  = 230;     // was 150
+const SPEED_RAMP = 2.2;     // was 1.15 — speed builds quickly
+const OBST_SCALE = 1.4;     // obstacles ~1.4x bigger than before
+const CHAR_H_BASE = 185;    // character height, logical px (was 150) — big and prominent
+const LOW_BAR_H_BASE = 81;  // 58 * 1.4
+const OVER_GAP_BASE = 101;  // 72 * 1.4
+const SPAWN_Z = 230;        // spawn distance ahead (was 210 — a touch more warning at race speed)
+const HIT_Z = 9;            // z window where collisions count
+const SLIDE_T = 0.75;       // slide duration (s)
+const SLIDE_SY = 0.42;      // slide squash
+
+/* ---------- responsive full-bleed layout ---------- */
+// Logical design height is 800 units; U scales it to the real viewport.
+// VW/VH are CSS pixels of the actual screen (e.g. 390x844 on An's iPhone).
+let VW = 480, VH = 800, U = 1;
+let CENTER_X = 240, HORIZON_Y = 250, PLAYER_Y = 692, LANE_HALF = 132;
+let CHAR_H = 185, JUMP_V = 540, JUMP_G = 1500, LOW_BAR_H = 81, OVER_GAP = 101;
+
+function resize(w, h){
+  let vw, vh;
+  if (typeof w === 'number' && typeof h === 'number') { vw = w; vh = h; }
+  else {
+    const r = (wrap && wrap.getBoundingClientRect) ? wrap.getBoundingClientRect() : null;
+    vw = (r && r.width) || 480; vh = (r && r.height) || 800;
+  }
+  VW = vw; VH = vh; U = VH / 800;
+  CENTER_X = VW / 2;
+  HORIZON_Y = VH * 0.3125;
+  PLAYER_Y = VH * 0.865;
+  LANE_HALF = Math.min(VW * 0.29, VH * 0.175);
+  CHAR_H = CHAR_H_BASE * U;
+  JUMP_V = 540 * U;
+  JUMP_G = 1500 * U;
+  LOW_BAR_H = LOW_BAR_H_BASE * U;
+  OVER_GAP = OVER_GAP_BASE * U;
+  const dpr = (typeof window !== 'undefined' && window.devicePixelRatio)
+    ? Math.min(2, window.devicePixelRatio) : 1;
+  canvas.width = Math.max(1, Math.round(VW * dpr));
+  canvas.height = Math.max(1, Math.round(VH * dpr));
+  canvas._dpr = dpr;
+}
+resize();
+if (typeof window !== 'undefined' && window.addEventListener)
+  window.addEventListener('resize', function(){ resize(); });
 
 const $ = id => document.getElementById(id);
 const hudEl=$('hud'), scoreEl=$('score'), coinsEl=$('coins'),
@@ -193,18 +226,13 @@ const runFrames = [
   loadImg('art/run-frame4.png'),      // frame 4: legs together
 ];
 const spriteFront = loadImg('art/beca-run-front.png');
-function runFrameIndex(){
-  if (S.mode !== 'playing') return 0;
-  if (S.jumpT >= 0) return 1; // tucked legs while jumping
-  return Math.floor(S.runTime * 10) % 4;
-}
 
 /* ---------- state ---------- */
 const S = {
   mode: 'menu',           // menu | playing | over
   time: 0,                // global clock (s)
   runTime: 0,             // time since run started
-  speed: 55,              // units / s
+  speed: SPEED_BASE,      // units / s
   distance: 0,            // units travelled
   score: 0,
   coins: 0,
@@ -216,15 +244,28 @@ const S = {
   entities: [],           // {kind:'low'|'over'|'tall'|'coin', lane, z, h, taken, passed}
   decor: [],              // side decorations {side:-1|1, z, kind}
   spawnAcc: 0,            // distance since last pattern
-  nextGap: 80,
+  nextGap: 58,
+  patterns: 0,            // patterns spawned (test hook)
   over: false,
   newBest: false,
 };
 try { S.best = parseInt(localStorage.getItem('becaRunBest') || '0', 10) || 0; } catch(e) { S.best = 0; }
 function saveBest(){ try { localStorage.setItem('becaRunBest', String(S.best)); } catch(e){} }
 
+/* ---------- helpers ---------- */
+function speedNorm(){
+  return Math.max(0, Math.min(1, (S.speed - SPEED_BASE) / (SPEED_MAX - SPEED_BASE)));
+}
+function runFrameIndex(){
+  if (S.mode !== 'playing') return 0;
+  if (S.jumpT >= 0) return 1; // tucked legs while jumping
+  // legs pump faster as speed rises: ~13 fps at base speed, ~22 fps at max
+  const fps = 8 + S.speed * 0.06;
+  return Math.floor(S.runTime * fps) % 4;
+}
+
 /* ---------- perspective helpers ---------- */
-function scaleAt(z){ return 1 / (1 + z / PERSP_D); }
+function scaleAt(z){ return 1 / (1 + z / 55); }
 function laneX(lane, z){ return CENTER_X + lane * LANE_HALF * scaleAt(z); }
 function groundY(z){ return HORIZON_Y + (PLAYER_Y - HORIZON_Y) * scaleAt(z); }
 
@@ -260,7 +301,6 @@ document.addEventListener('keydown', e => {
 
 /* touch: swipe to move / jump / slide, tap to jump */
 let touchStart = null;
-const wrap = document.getElementById('wrap');
 wrap.addEventListener('touchstart', e => {
   // Let buttons (Start / Play again) handle their own taps — do not swallow their click on iOS.
   if (e.target.closest('button')) return;
@@ -287,29 +327,41 @@ wrap.addEventListener('touchmove', e => { if (e.target.closest('button')) return
 /* ---------- spawning ---------- */
 function spawnPattern(){
   // Pick a pattern that always leaves a fair way through.
+  S.patterns++;
   const r = Math.random();
   const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
-  if (r < 0.30) {
+  if (r < 0.26) {
     // coin line on one lane
     const L = lanes[0];
     for (let i = 0; i < 5; i++) S.entities.push({ kind:'coin', lane:L, z:SPAWN_Z + i*12, h:0 });
-  } else if (r < 0.48) {
+  } else if (r < 0.40) {
     // low barrier on one lane + coins on another
     S.entities.push({ kind:'low', lane:lanes[0], z:SPAWN_Z });
     for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[1], z:SPAWN_Z + i*12, h:0 });
-  } else if (r < 0.62) {
+  } else if (r < 0.52) {
     // overhead bar on one lane + coins on another
     S.entities.push({ kind:'over', lane:lanes[0], z:SPAWN_Z });
     for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[1], z:SPAWN_Z + i*12, h:0 });
-  } else if (r < 0.78) {
+  } else if (r < 0.64) {
     // tall block on one lane, low barrier on another, third lane free
     S.entities.push({ kind:'tall', lane:lanes[0], z:SPAWN_Z });
     S.entities.push({ kind:'low',  lane:lanes[1], z:SPAWN_Z });
-  } else if (r < 0.90) {
+  } else if (r < 0.74) {
     // two tall blocks, one free lane with coins
     S.entities.push({ kind:'tall', lane:lanes[0], z:SPAWN_Z });
     S.entities.push({ kind:'tall', lane:lanes[1], z:SPAWN_Z });
     for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[2], z:SPAWN_Z + 6 + i*12, h:0 });
+  } else if (r < 0.82) {
+    // two low barriers, coins on the free lane
+    S.entities.push({ kind:'low', lane:lanes[0], z:SPAWN_Z });
+    S.entities.push({ kind:'low', lane:lanes[1], z:SPAWN_Z });
+    for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[2], z:SPAWN_Z + i*12, h:0 });
+  } else if (r < 0.90) {
+    // triple: tall + low + over, one per lane — always a way through
+    // (jump the low lane or slide the over lane)
+    S.entities.push({ kind:'tall', lane:lanes[0], z:SPAWN_Z });
+    S.entities.push({ kind:'low',  lane:lanes[1], z:SPAWN_Z });
+    S.entities.push({ kind:'over', lane:lanes[2], z:SPAWN_Z });
   } else {
     // coin arc: jump for the middle coin
     const L = lanes[0];
@@ -318,22 +370,33 @@ function spawnPattern(){
     S.entities.push({ kind:'coin', lane:L, z:SPAWN_Z + 24, h:0  });
     S.entities.push({ kind:'low',  lane:lanes[1], z:SPAWN_Z + 6 });
   }
-  // side decoration (palm / umbrella / hut) on a random side
-  if (Math.random() < 0.75) {
+  // staggered follow-up row (a single obstacle — always leaves 2 free lanes)
+  if (Math.random() < 0.30) {
+    const kinds = ['low', 'over', 'tall'];
+    S.entities.push({ kind: kinds[Math.floor(Math.random() * 3)],
+                      lane: lanes[Math.floor(Math.random() * 3)], z: SPAWN_Z + 85 });
+  }
+  // side decoration (palm / umbrella / hut), more often than before
+  if (Math.random() < 0.9) {
     S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 20,
                    kind: ['palm','umbrella','hut'][Math.floor(Math.random()*3)] });
+    if (Math.random() < 0.25) {
+      S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 60,
+                     kind: ['palm','umbrella','hut'][Math.floor(Math.random()*3)] });
+    }
   }
 }
 
 /* ---------- game flow ---------- */
 function startGame(){
   S.mode = 'playing';
-  S.runTime = 0; S.speed = 55; S.distance = 0;
+  S.runTime = 0; S.speed = SPEED_BASE; S.distance = 0;
   S.score = 0; S.coins = 0;
   S.lane = 0; S.charX = CENTER_X;
   S.jumpT = -1; S.slideT = -1;
   S.entities = []; S.decor = [];
-  S.spawnAcc = 0; S.nextGap = 80;
+  S.spawnAcc = 0; S.nextGap = 58;
+  S.patterns = 0;
   S.over = false; S.newBest = false;
   menuEl.classList.add('hidden');
   overEl.classList.add('hidden');
@@ -372,7 +435,7 @@ function update(dt){
   if (S.mode !== 'playing') return;
 
   S.runTime += dt;
-  S.speed = Math.min(150, 55 + S.runTime * 1.15);
+  S.speed = Math.min(SPEED_MAX, SPEED_BASE + S.runTime * SPEED_RAMP);
   S.distance += S.speed * dt;
   S.score = Math.floor(S.distance / 10) + S.coins * 10;
 
@@ -390,11 +453,11 @@ function update(dt){
     if (S.slideT > SLIDE_T) S.slideT = -1;
   }
 
-  // spawn patterns by distance
+  // spawn patterns by distance — denser than before (mean gap 69, was 91)
   S.spawnAcc += S.speed * dt;
   if (S.spawnAcc >= S.nextGap) {
     S.spawnAcc = 0;
-    S.nextGap = 78 + Math.random() * 26;
+    S.nextGap = 58 + Math.random() * 22;
     spawnPattern();
   }
 
@@ -407,16 +470,15 @@ function update(dt){
 
   // collisions / pickups in the hit zone
   const pH = jumpHeight();
-  const pHgt = isSliding() ? CHAR_H * SLIDE_SY : CHAR_H;
   for (const e of S.entities) {
     if (e.taken || e.passed) continue;
     if (Math.abs(e.z) > HIT_Z) continue;
     if (e.lane !== S.lane) { if (e.z < -HIT_Z) e.passed = true; continue; }
     if (e.kind === 'coin') {
-      const coinH = (e.h || 0);
-      if (Math.abs(pH - coinH) < 46) { e.taken = true; S.coins++; updateHUD(); }
+      const coinH = (e.h || 0) * U;
+      if (Math.abs(pH - coinH) < 46 * U) { e.taken = true; S.coins++; updateHUD(); }
     } else if (e.kind === 'low') {
-      if (pH < LOW_BAR_H - 6) { gameOver(); return; }
+      if (pH < LOW_BAR_H - 6 * U) { gameOver(); return; }
       e.passed = true;
     } else if (e.kind === 'over') {
       if (!isSliding()) { gameOver(); return; }
@@ -430,12 +492,19 @@ function update(dt){
 
 /* ---------- drawing ---------- */
 function drawBackground(){
-  // 3D seaside boardwalk backdrop (same 3D style as the bé cá).
+  // 3D seaside boardwalk backdrop, drawn cover-style to fill the whole
+  // screen edge-to-edge, with the image's horizon aligned to HORIZON_Y.
   if (imgReady(bgImg)) {
-    ctx.drawImage(bgImg, 0, 0, W, H);
+    const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight; // 800x1600
+    const horizonInImg = ih / 3; // horizon ~1/3 down the image
+    const s = Math.max(VW / iw, VH / ih, (VH - HORIZON_Y) / (ih - horizonInImg));
+    const dw = iw * s, dh = ih * s;
+    const dx = (VW - dw) / 2;
+    const dy = HORIZON_Y - horizonInImg * s;
+    ctx.drawImage(bgImg, dx, dy, dw, dh);
   } else {
     ctx.fillStyle = '#8fd3f4';
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, 0, VW, VH);
   }
 }
 function drawDecor(d){
@@ -443,11 +512,11 @@ function drawDecor(d){
   if (s < 0.12) return;
   const img = d.kind === 'palm' ? imgPalm : d.kind === 'umbrella' ? imgUmbrella : imgHut;
   if (!imgReady(img)) return;
-  const sideX = d.side < 0 ? 34 : W - 34;
+  const sideX = d.side < 0 ? VW * 0.07 : VW * 0.93;
   const x = CENTER_X + (sideX - CENTER_X) * s;
   const y = groundY(d.z);
   // local size (at s=1): palm tall, umbrella medium, hut wide
-  const h = d.kind === 'palm' ? 150 : d.kind === 'umbrella' ? 130 : 110;
+  const h = (d.kind === 'palm' ? 150 : d.kind === 'umbrella' ? 130 : 110) * U;
   const w = h * (img.naturalWidth / img.naturalHeight);
   ctx.save();
   ctx.translate(x, y);
@@ -459,10 +528,10 @@ function drawCoin(e){
   if (!imgReady(imgCoin)) return;
   const s = scaleAt(e.z);
   const x = laneX(e.lane, e.z);
-  const y = groundY(e.z) - (e.h || 0) * s - 26 * s;
+  const y = groundY(e.z) - (e.h || 0) * U * s - 26 * U * s;
   const spin = Math.abs(Math.cos(S.time * 6 + e.z * 0.2));
   const sx = 0.25 + 0.75 * spin; // spin squash
-  const r = 17; // local half-size
+  const r = 17 * U; // local half-size
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s * sx, s);
@@ -476,8 +545,9 @@ function drawObstacle(e){
   if (!imgReady(img)) return;
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z);
-  // local size (at s=1), matched to each 3D image's aspect ratio
-  const h = e.kind === 'low' ? 58 : e.kind === 'over' ? 188 : 183;
+  // local size (at s=1), matched to each 3D image's aspect ratio —
+  // all obstacles ~1.4x bigger than before
+  const h = (e.kind === 'low' ? 58 : e.kind === 'over' ? 188 : 183) * OBST_SCALE * U;
   const w = h * (img.naturalWidth / img.naturalHeight);
   ctx.save();
   ctx.translate(x, y);
@@ -486,22 +556,27 @@ function drawObstacle(e){
   ctx.restore();
 }
 function drawCharacter(){
-  // run-cycle: 4 frames cycle while running so the legs visibly move
+  // run-cycle: 4 frames cycle while running so the legs visibly pump
   const fi = runFrameIndex();
   const img = runFrames[fi];
   if (!imgReady(img)) return;
-  const bob = Math.sin(S.time * 11) * 3;
+  const norm = speedNorm();
+  const bobFreq = 9 + S.speed * 0.05;      // bob quickens with speed
+  const bobAmp = (3 + norm * 2) * U;       // bob grows a little with speed
+  const bob = Math.sin(S.time * bobFreq) * bobAmp;
   const pH = jumpHeight();
   const sliding = isSliding();
   const h = CHAR_H * (sliding ? SLIDE_SY : 1);
   const w = CHAR_H * (img.naturalWidth / img.naturalHeight);
   const feetY = PLAYER_Y - pH + (sliding ? 0 : bob);
-  const tilt = Math.sin(S.time * 11) * 0.03;
+  // leans forward more as the race builds — a real race, not a jog
+  const lean = 0.05 + norm * 0.10;
+  const tilt = Math.sin(S.time * bobFreq) * 0.03 + lean;
   // soft shadow
-  const shScale = Math.max(0.35, 1 - pH / 220);
+  const shScale = Math.max(0.35, 1 - pH / (220 * U));
   ctx.fillStyle = 'rgba(60,30,0,.28)';
   ctx.beginPath();
-  ctx.ellipse(S.charX, PLAYER_Y + 6, 34 * shScale, 8 * shScale, 0, 0, Math.PI*2);
+  ctx.ellipse(S.charX, PLAYER_Y + 6 * U, 34 * U * shScale, 8 * U * shScale, 0, 0, Math.PI*2);
   ctx.fill();
   ctx.save();
   ctx.translate(S.charX, feetY);
@@ -510,8 +585,43 @@ function drawCharacter(){
   ctx.drawImage(img, -w/2, -h, w, h);
   ctx.restore();
 }
+/* Speed lines / wind streaks at the screen edges — appear as speed builds.
+   No screen shake anywhere. */
+function speedLineState(){
+  if (S.mode !== 'playing') return { count: 0, alpha: 0 };
+  const norm = speedNorm();
+  if (norm <= 0.02) return { count: 0, alpha: 0 };
+  return { count: Math.floor(4 + norm * 10), alpha: 0.10 + norm * 0.25 };
+}
+function drawSpeedLines(){
+  const st = speedLineState();
+  if (st.count === 0) return;
+  const speedPx = S.speed * 3.2; // downward rush, px/s
+  ctx.save();
+  ctx.globalAlpha = st.alpha;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 2 + speedNorm() * 2;
+  for (let i = 0; i < st.count; i++) {
+    const seed = i * 137.5;
+    const left = (i % 2 === 0);
+    const xFrac = left ? 0.02 + ((seed * 0.37) % 1) * 0.10
+                       : 0.88 + ((seed * 0.53) % 1) * 0.10;
+    const x = VW * xFrac;
+    const len = VH * (0.08 + speedNorm() * 0.12);
+    let y = (seed * 1.7 + S.time * speedPx) % (VH + len);
+    y -= len;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x, y + len);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 function draw(){
-  ctx.clearRect(0, 0, W, H);
+  const dpr = canvas._dpr || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, VW, VH);
   drawBackground();
   // decor sorted far -> near
   const dec = S.decor.slice().sort((a,b) => b.z - a.z);
@@ -524,9 +634,10 @@ function draw(){
   }
   drawCharacter();
   // gentle vignette (soft, no flash)
-  const vg = ctx.createRadialGradient(CENTER_X, H/2, H*0.45, CENTER_X, H/2, H*0.85);
+  const vg = ctx.createRadialGradient(CENTER_X, VH/2, VH*0.45, CENTER_X, VH/2, VH*0.85);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(10,50,100,.18)');
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+  drawSpeedLines();
 }
 
 /* ---------- main loop ---------- */
@@ -550,6 +661,10 @@ window.__becaRun = {
   spawnPattern,
   laneX, groundY, scaleAt,
   runFrame: runFrameIndex,
+  speedNorm, speedLines: speedLineState,
+  layout(){ return { VW, VH, U, CENTER_X, HORIZON_Y, PLAYER_Y, LANE_HALF,
+                     CHAR_H, LOW_BAR_H, OVER_GAP, SPEED_BASE, SPEED_MAX, OBST_SCALE }; },
+  resize,
   assets(){
     return {
       bg: imgReady(bgImg), coin: imgReady(imgCoin),
