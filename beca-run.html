@@ -220,22 +220,23 @@ const SPAWN_Z = 300;        // spawn distance ahead (1.3 s of warning at max spe
 const HIT_Z = 9;            // z window where collisions / pickups count
 const LANE_LERP = 22;       // lane-change smoothing rate
 const PLAYER_Y_FRAC = 0.69; // bé cá's feet: up the screen, ahead of the wolf
-/* The low barrier: 1.2 lanes wide, height from its real aspect
-   (931x320 = 2.909) — ~49 local units tall, a proper hurdle,
+/* v12: the low barrier is 1.35 lanes wide, height from its real aspect
+   (931x320 = 2.909) — ~55 local units tall, a proper hurdle,
    well below the jump apex. Drawn size = collision size. */
-const LOW_W_LANES = 1.2;
-/* The overhead barrier: 1.3 lanes wide, height from its real aspect
-   (600x420 = 1.4286) — ~108 local tall. The red-white bar sits in
+const LOW_W_LANES = 1.35;
+/* v12: the overhead barrier is 1.45 lanes wide, height from its real aspect
+   (600x420 = 1.4286) — ~120 local tall. The red-white bar sits in
    the top ~20% of the sprite (measured with PIL: bar rows y 10-85
    of 420), so the CLEAR GAP underneath is ~0.795 of the height,
-   ~85 local units — standing (150) or jumping into it crashes,
-   sliding (collision height 70) passes cleanly. */
-const OVER_W_LANES = 1.3;
+   ~95 local units — standing (150) or jumping into it crashes,
+   sliding (collision height 70) passes cleanly with 25 to spare. */
+const OVER_W_LANES = 1.45;
 const OVER_GAP_FRAC = 0.795;
-/* Trains: 0.9 lanes wide, rear-face art 400x600 (aspect 2:3), so
-   the roof is ~160 local units high — comfortably below the jump
-   apex (195 local, margin ~35). Length 150-250 z units. */
-const TRAIN_W_LANES = 0.9;
+/* v12: Trains are 1.0 lane wide (they fill the whole track, easier
+   to see), rear-face art 400x600 (aspect 2:3), so the roof is
+   ~177 local units high — comfortably below the jump apex
+   (213 local, margin ~36). Length 150-250 z units. */
+const TRAIN_W_LANES = 1.0;
 const TRAIN_ASPECT = 1.5;   // rear-face art height / width (600/400)
 const TRAIN_LEN_MIN = 150;
 const TRAIN_LEN_MAX = 250;
@@ -258,10 +259,12 @@ const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units
    y ~840). 0.526 puts the horizon on the gravel across the whole
    centre, so distant objects sit on the track bed. */
 const BG_HORIZON_FRAC = 0.526;
-/* Jump: apex = V^2 / (2G) = 765^2 / 3000 = ~195 local units —
-   clears the ~49-unit low barrier with a huge margin and reaches
-   the ~160-unit train roof with ~35 units to spare. */
-const JUMP_V_BASE = 765;
+/* v12: Jump: apex = V^2 / (2G) = 800^2 / 3000 = ~213 local units —
+   clears the ~55-unit low barrier with a huge margin and reaches
+   the ~177-unit train roof with ~36 units to spare (the jump was
+   raised from 765 when the trains got wider/taller, so the roof
+   margin stays the same as v11). */
+const JUMP_V_BASE = 800;
 const JUMP_G_BASE = 1500;
 /* Wolf chase geometry (local units; U scales them to the screen).
    The wolf runs DIRECTLY BEHIND bé cá — one vertical column
@@ -440,6 +443,14 @@ const S = {
 try { S.best = parseInt(localStorage.getItem('becaRunBest') || '0', 10) || 0; } catch(e) { S.best = 0; }
 function saveBest(){ try { localStorage.setItem('becaRunBest', String(S.best)); } catch(e){} }
 
+/* v12: how far the track has scrolled under the runner (z units).
+   The sleepers in drawTracks() move by this amount, so the ground
+   visibly rushes past instead of standing still. It grows during
+   play (with S.distance) and during cutscene phases C/D, when the
+   chase is already running — but NOT in phases A/B, where bé cá
+   is still walking up to the sleeping wolf. Reset in startGame. */
+let trackScroll = 0;
+
 /* ---------- helpers ---------- */
 function speedNorm(){
   return Math.max(0, Math.min(1, (S.speed - SPEED_BASE) / (SPEED_MAX - SPEED_BASE)));
@@ -559,7 +570,7 @@ function landOnTrain(t){
 // - only a LOW barrier: jump over it
 // - only an OVERHEAD barrier: slide under it
 // - only a TRAIN: jump ONTO its roof (counts only if the jump can
-//   reach the roof — apex 195 vs roof ~160, margin ~35)
+//   reach the roof — apex 213 vs roof ~177, margin ~36)
 function lanePassable(lane, row){
   const overlaps = row.filter(o => {
     if (o.kind === 'coin') return false;
@@ -744,7 +755,7 @@ function spawnPattern(){
     else addLow(lanes[0]);
   } else if (r < 0.44) {
     // two trains, third lane free (sometimes with a coin line there)
-    if (free.length >= 2) { addTrainRow(free[0]); addTrainRow(free[1]); if (Math.random() < 0.5) addCoinLine(free[2]); }
+    if (free.length >= 2) { addTrainRow(free[0]); addTrainRow(free[1]); if (free[2] !== undefined && Math.random() < 0.5) addCoinLine(free[2]); }
     else if (free.length === 1) { addTrainRow(free[0]); }
   } else if (r < 0.58) {
     // two low barriers
@@ -784,9 +795,17 @@ function spawnPattern(){
   // Fairness safety net: never ship a row with no way through, and
   // never ship a row the player cannot reach from the previous
   // row. If a row fails, drop its widest obstacle and re-check.
+  // v12: a lane a LINGERING train spans at this row's z is not
+  // passable, even though the row itself puts nothing there — the
+  // train's body is still alongside when the row arrives, so a
+  // two-train row whose "free" third lane is blocked that way is
+  // an impossible row. The net subtracts `blocked` (computed
+  // above, before this row's own trains were added) from the
+  // passable lanes, and stores the same adjusted set for the
+  // next row's sequence check.
   let guard = 0;
   while (row.length > 0 && guard++ < 8) {
-    const pl = passableLanes(row);
+    const pl = passableLanes(row).filter(l => !blocked.includes(l));
     const fair = pl.length > 0;
     const seqOk = S.prevPassable.length === 0 ||
       S.prevPassable.some(p => pl.some(q => Math.abs(p - q) <= 1));
@@ -799,7 +818,7 @@ function spawnPattern(){
     const idx = S.entities.indexOf(dropped);
     if (idx >= 0) S.entities.splice(idx, 1);
   }
-  S.prevPassable = passableLanes(row);
+  S.prevPassable = passableLanes(row).filter(l => !blocked.includes(l));
   S.prevRowOverLanes = row.filter(o => o.kind === 'over').map(o => o.lane);
 }
 
@@ -815,7 +834,8 @@ function startGame(){
   S.jumpT = -1; S.jumpBase = 0; S.slideT = -1; S.slideCd = 0;
   S.onTrain = null;
   S.entities = [];
-  S.spawnAcc = 0; S.nextGap = 95;  // first pattern after a clear opening stretch
+  S.spawnAcc = 0; S.nextGap = 120;  // first pattern after a clear opening stretch
+  trackScroll = 0;
   S.patterns = 0; S.prevPassable = []; S.prevRowOverLanes = [];
   S.over = false; S.newBest = false;
   S.trainCount = 0; S.slideCount = 0; S.roofRideCount = 0;
@@ -871,6 +891,11 @@ function update(dt){
   S.time += dt;
   if (S.mode === 'cutscene') {
     S.cutT += dt;
+    // v12: from phase C on (the wolf wakes up and bé cá runs) the
+    // track scrolls under their feet, so phase D "CHẠY ĐI!" already
+    // feels like running, not standing still. Phases A/B (walking
+    // up to the sleeping wolf) stay still on purpose.
+    if (S.cutT >= CUT_B) trackScroll += S.speed * dt;
     if (S.cutT >= CUT_DUR) beginRun();
     return;
   }
@@ -879,6 +904,7 @@ function update(dt){
   S.runTime += dt;
   S.speed = Math.min(SPEED_MAX, SPEED_BASE + S.runTime * SPEED_RAMP);
   S.distance += S.speed * dt;
+  trackScroll += S.speed * dt;
   // multiplier: x1, +1 every 500 m, cap x60 — the score accelerates
   S.mult = Math.min(MULT_CAP, 1 + Math.floor((S.distance / 10) / MULT_EVERY_M));
   S.score = Math.floor(S.distance / 10 * S.mult) + S.coins * 10;
@@ -947,12 +973,16 @@ function update(dt){
     if (S.onTrain && S.onTrain.z + S.onTrain.len <= 0) S.onTrain = null;
   }
 
-  // spawn patterns by distance — sparser now (mean gap ~108, was 69)
-  // so the track feels open with breathing room between obstacle groups
+  // spawn patterns by distance — sparser now (mean gap ~135, was 108):
+  // v12 made mid-body trains deadly (no more ghosting through
+  // them), so a long train (150-250) from the previous row can
+  // still be alongside the player when the next row arrives. A
+  // wider gap gives the player time to clear the old train's lane
+  // before the next row closes the escape lanes.
   S.spawnAcc += S.speed * dt;
   if (S.spawnAcc >= S.nextGap) {
     S.spawnAcc = 0;
-    S.nextGap = 95 + Math.random() * 25;
+    S.nextGap = 120 + Math.random() * 30;
     spawnPattern();
   }
 
@@ -966,6 +996,38 @@ function update(dt){
   const sliding = isSliding();
   for (const e of S.entities) {
     if (e.taken || e.passed) continue;
+    // v12: a TRAIN is a long body, not a point — the old gate
+    // |e.z| <= HIT_Z only checked the REAR FACE, so switching
+    // into the middle of a passing train ghosted straight through
+    // it. A train threatens while any part of its body spans the
+    // player: rear face arrived (e.z <= HIT_Z) and far end not
+    // yet past (e.z + e.len >= 0) — the same span test
+    // trainUnderPlayer() uses for the roof. The tail bound is 0,
+    // not -HIT_Z, on purpose: when a ridden train ends (far end
+    // = 0) the player drops to the ground in the train's own lane,
+    // and a -9 grace would kill them for the train they were
+    // just riding.
+    if (e.kind === 'train') {
+      if (e.z > HIT_Z || e.z + e.len < 0) continue;
+      if (S.onTrain) continue; // already riding a roof
+      // Trains are checked by LANE, not by the lerping x: the game
+      // thinks in discrete lanes everywhere else (spawn fairness,
+      // lanePassable, the switch itself), and the train fills its
+      // whole lane (1.0 lane wide). A charX check would kill the
+      // player mid-switch while switching OFF a roof beside the
+      // train they were just riding (their x is still inside the
+      // train's width for ~4 frames) — and would let a player
+      // switching INTO a passing train's lane live on the
+      // technicality that their x had not crossed yet.
+      if (S.lane !== e.lane) continue;
+      const d = obstDims('train');
+      // Jumping high enough lands ON the roof, anything lower
+      // smacks into the train (rear face or side, same thing:
+      // the player is in the train's lane on the ground).
+      if (pH >= d.h - 4 * U) { landOnTrain(e); }
+      else { gameOver(); return; } // the wolf catches her
+      continue;
+    }
     if (Math.abs(e.z) > HIT_Z) continue;
     if (e.kind === 'coin') {
       // coins are collected by running/jumping/riding into them —
@@ -976,18 +1038,10 @@ function update(dt){
       continue;
     }
     // Real x-overlap from the DRAWN width — what you see is what
-    // kills you.
+    // kills you. (Trains are handled above, by lane.)
     const d = obstDims(e.kind);
     const hw = (d.w / 2) * scaleAt(Math.max(0, e.z));
     if (Math.abs(S.charX - laneX(e.lane, e.z)) >= hw + PLAYER_HW) continue;
-    if (e.kind === 'train') {
-      if (S.onTrain) continue; // already riding a roof
-      // The rear face: jumping high enough lands ON the roof,
-      // anything lower smacks into the back of the train.
-      if (pH >= d.h - 4 * U) { landOnTrain(e); }
-      else { gameOver(); return; } // the wolf catches her
-      continue;
-    }
     // Ground barriers: on a train roof the player runs ABOVE them
     // all — no collision with the train or with ground barriers.
     // A barrier already behind the player (z<0) has passed them:
@@ -1047,8 +1101,16 @@ function drawTracks(){
   const zs = [-24, 0, 20, 45, 80, 130, 200, 300, 500, 1000];
   for (const lane of [-1, 0, 1]) {
     // sleepers first (under the rails) — tight spacing nearby,
-    // wider steps far away where perspective bunches them anyway
-    for (let z = -24; z <= 1000; z += (z < 200 ? 9 : 45)) {
+    // wider steps far away where perspective bunches them anyway.
+    // v12: the sleepers SCROLL with the run (trackScroll = distance
+    // travelled) instead of standing still — otherwise the track
+    // looks frozen and the run reads as jogging in place. Each
+    // zone scrolls modulo its own spacing (near: 9, far: 45), so
+    // the pattern repeats seamlessly: a sleeper leaving the
+    // bottom edge is replaced by the next one exactly one spacing
+    // up the track, with no pop.
+    const rN = trackScroll % 9, rF = trackScroll % 45;
+    const sleeper = (z) => {
       const s = scaleAt(Math.max(0, z));
       const y = groundY(z);
       const cx = laneX(lane, z);
@@ -1059,7 +1121,9 @@ function drawTracks(){
       ctx.moveTo(cx - half, y);
       ctx.lineTo(cx + half, y);
       ctx.stroke();
-    }
+    };
+    for (let z = -24 - rN; z < 200; z += 9) sleeper(z);
+    for (let z = 200 - rF; z <= 1000; z += 45) sleeper(z);
     // rails: two steel lines per track, tapering with perspective
     const railHalf = 0.34 * LANE_HALF;
     for (const side of [-1, 1]) {
@@ -1113,15 +1177,24 @@ function drawTrain(e){
   // A long colourful train occupying one track: the rear-face art
   // sprite at z (the back of the train), the ROOF as a flat
   // coloured trapezoid from the rear face toward the horizon, and
-  // darker side quads. The train is ~0.9 lanes wide; its roof is
-  // ~160 local units high — reachable by the jump (apex ~195).
-  const s = scaleAt(e.z);
-  if (s < 0.05) return;
+  // darker side quads. The train is 1.0 lane wide; its roof is
+  // ~177 local units high — reachable by the jump (apex ~213).
+  // v12: while the train passes the player its rear face goes far
+  // behind (e.z << 0), where the perspective scale flips negative
+  // (scaleAt < 0 for z < -55) and the drawing would mirror
+  // inside-out. The visible body is the part at z >= 0, so clamp
+  // the rear end to the player's plane; the rear-face sprite is
+  // only drawn while the face is still ahead of the player, and a
+  // train entirely behind the player is not drawn at all.
   const z2 = e.z + e.len;
+  if (z2 <= 0) return;
+  const zA = Math.max(0, e.z);
+  const s = scaleAt(zA);
+  if (s < 0.05) return;
   const s2 = scaleAt(z2);
   const img = trainImgs[e.color] || trainImgs.red;
   const d = obstDims('train');
-  const x = laneX(e.lane, e.z), y = groundY(e.z);
+  const x = laneX(e.lane, zA), y = groundY(zA);
   const x2 = laneX(e.lane, z2), y2 = groundY(z2);
   const w = d.w * s, h = d.h * s, w2 = d.w * s2, h2 = d.h * s2;
   // the rear-face art has transparent side margins (content is
@@ -1155,8 +1228,9 @@ function drawTrain(e){
   ctx.lineTo(x2 - w2 * cHalf2, y2 - h2);
   ctx.closePath();
   ctx.fill();
-  // rear face sprite (the back of the train, facing the player)
-  if (imgReady(img)) ctx.drawImage(img, x - w / 2, y - h, w, h);
+  // rear face sprite (the back of the train, facing the player) —
+  // only while the face is still ahead of the player
+  if (e.z > 0 && imgReady(img)) ctx.drawImage(img, x - w / 2, y - h, w, h);
 }
 /* Draw one wolf run frame at a FIXED CONTENT height, content feet
    anchored at feetY, centred on cx. The display height follows the
@@ -1237,8 +1311,10 @@ function drawCharacter(){
   const cyclePhase = (S.runTime * runFps() / 4) % 1;
   const lunge = Math.max(0, Math.sin(cyclePhase * Math.PI * 2)) * 5 * U;
   const feetY = PLAYER_Y - pH + bob - lunge;
-  // leans forward more as the race builds — a real race, not a jog
-  const lean = 0.08 + norm * 0.14;
+  // leans forward more as the race builds — a real race, not a jog.
+  // v12: she leans harder into the run while the wolf is chasing
+  // her (the first 7 s) — head-down racing, not jogging.
+  const lean = 0.08 + norm * 0.14 + (wolfVisible() ? 0.05 : 0);
   const tilt = Math.sin(S.time * bobFreq) * 0.05 + lean;
   ctx.save();
   ctx.translate(S.charX, feetY);
@@ -1251,6 +1327,10 @@ function drawCharacter(){
 function speedLineState(){
   if (S.mode !== 'playing') return { count: 0, alpha: 0 };
   const norm = speedNorm();
+  // v12: wind lines from the very start — during the 7 s wolf
+  // chase the race is already at full tilt even though the speed
+  // has not ramped up yet, so the chase alone turns them on.
+  if (S.runTime < WOLF_CHASE_T) return { count: 10, alpha: 0.22 };
   if (norm <= 0.01) return { count: 0, alpha: 0 };
   return { count: Math.floor(6 + norm * 14), alpha: 0.15 + norm * 0.30 };
 }
@@ -1385,6 +1465,10 @@ function draw(){
   ctx.clearRect(0, 0, VW, VH);
   drawBackground();
   if (S.mode === 'cutscene') {
+    // v12: the tracks are drawn in the cutscene too — the bg art
+    // has NO painted rails, so without this the chase plays on a
+    // bare background with no rails under the runners' feet.
+    drawTracks();
     drawCutscene();
     return;
   }
@@ -1460,6 +1544,7 @@ window.__becaRun = {
                      WOLF_X_OFF: WOLF_X_OFF * U, SMOKE_RATE, SMOKE_MAX,
                      MULT_CAP, MULT_EVERY_M, PLAYER_Y_FRAC }; },
   resize,
+  trackScroll(){ return trackScroll; },
   assets(){
     return {
       bg: imgReady(bgImg), coin: imgReady(imgCoin),
