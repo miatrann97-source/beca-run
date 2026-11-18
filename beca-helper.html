@@ -23,7 +23,7 @@ var B=null,log=[],phase='start',tmpl=null,target=null,attempts=0,playT0=0,seenCo
 function say(s){log.push(s);if(log.length>80)log.shift();st.textContent='['+scene+']\n'+log.join('\n');}
 function done(s){say('DONE '+s);phase='done';}
 function trains(){return B.S.entities.filter(function(e){return e.kind==='train';});}
-function clearHazards(keep){var es=B.S.entities,pl=B.S.lane;for(var i=es.length-1;i>=0;i--){var e=es[i];if(e!==keep&&e.lane===pl&&e.z<70&&(e.kind==='train'||e.kind==='lowbar'||e.kind==='over'||e.kind==='ramp'))es.splice(i,1);}}
+function clearHazards(keep){var es=B.S.entities,pl=B.S.lane;for(var i=es.length-1;i>=0;i--){var e=es[i];if(e.kind==='lowbar'||e.kind==='over'){es.splice(i,1);continue;}if(e!==keep&&e.lane===pl&&e.z<70&&e.kind==='train')es.splice(i,1);}}
 function steerTo(lane){var g=0;while(B.S.lane!==lane&&g++<5){if(B.S.lane<lane)B.moveRight();else B.moveLeft();}}
 function laneSafe(lane){var es=B.S.entities;for(var i=0;i<es.length;i++){var e=es[i];if(e.lane===lane&&e.z<70&&e.z>-10&&(e.kind==='train'||e.kind==='lowbar'||e.kind==='over'))return false;}return true;}
 function dodgeLane(){var order=[0,-1,1];for(var i=0;i<order.length;i++){var L=order[i];if(L!==B.S.lane&&laneSafe(L)){steerTo(L);say('dodge to lane '+L);return true;}}return false;}
@@ -50,6 +50,8 @@ function step(){
  if(phase==='done')return;
  if(S.mode==='over'&&phase!=='waitover'){
   say('UNEXPECTED OVER score='+S.score+' phase='+phase+' attempts='+attempts);
+  var near=S.entities.filter(function(e){return e.z<40&&e.z>-10;}).map(function(e){return e.kind+':'+e.lane+' z='+e.z.toFixed(0);}).join(' | ');
+  say('ents near player: '+(near||'none'));
   if(++attempts>3){say('GIVING UP');phase='done';return;}
   B.start();B.skipCutscene();phase='start';tmpl=null;target=null;return;
  }
