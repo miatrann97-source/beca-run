@@ -439,9 +439,9 @@ const ROOF_WALK = '#e9e4d8';  // pale walkway down the middle of the roof
 const ROOF_LINE = 'rgba(0,0,0,0.35)'; // v15.2: was 0.28 — roof panel cross-lines, stronger so the roof reads panelled, not flat
 const CAP_JOINT = 'rgba(0,0,0,0.28)'; // v15.1: end-cap panel joint (thin, dark — the v14.1 wide LIGHT bands read as two pink bars on the dark cap when riding, white over dark red; the game-over overlay is lighter now so the cap no longer needs to fight it)
 const CAP_SEAM = 'rgba(0,0,0,0.30)';  // end-cap centre seam
-const WIN_W_LOCAL = 48, WIN_H_LOCAL = 72, WIN_CY_LOCAL = 165; // v15.2: was 30x44 — windows ~22.5% of the 320 wall, Subway's ~25%; the v15 windows were too small/sparse to break up the flat wall (An: "sửa như ko sửa")
-const WIN_STEP_Z = 32, WIN_FIRST_OFF = 22, WIN_MIN_S = 0.12;  // v15.2: was 45 — window spacing along the wall (denser)
-const DOOR_W_LOCAL = 40, DOOR_H_LOCAL = 110, DOOR_STEP_Z = 96; // v15.2: NEW — a tall entry door every 3rd window station (Subway: doors break the wall into segments; a door is 34% of the wall height)
+const WIN_W_Z = 16, WIN_H_LOCAL = 54, WIN_CY_LOCAL = 165; // v15.3: was 48x72 SCREEN-space rects every 32z — the rects were square to the screen while the wall slants away in perspective, so far down the wall a rect (∝ scale) was much bigger than the station spacing (∝ scale²): they overlapped ~50% and read as a row of floating pale cards (live-check t3/s1). Windows are now TRUE perspective quads: 16z of wall length × 54 local tall (~17% of the 320 wall), so a window occupies the same fraction of the spacing at every distance and can never pile up on its neighbours.
+const WIN_STEP_Z = 44, WIN_FIRST_OFF = 22, WIN_MIN_S = 0.12;  // v15.3: was 32 — wider spacing, so dark wall shows between the windows ("painted on a dark wall", not loose cards)
+const DOOR_W_Z = 20, DOOR_H_LOCAL = 110, DOOR_STEP_Z = 96; // v15.3: door extent along the wall is 20z now (was a 40-wide screen rect); height stays 110 (~34% of the wall)
 const FASCIA_FRAC = 0.17; // roof edge thickness, fraction of train height (~17%, measured in the video)
 const SKIRT_FRAC = 0.18;  // v15.2: was 0.14 — dark undercarriage band, fraction of wall height
 const ROOF_LINE_STEP_Z = 40, ROOF_LINE_FIRST_OFF = 20, ROOF_LINE_MIN_S = 0.12;
@@ -1586,14 +1586,23 @@ function drawTrain(e){
   // colour up close, An's photos: "sửa như ko sửa"). Each wall carries
   // TWO cream stripes (30-40% and 70-76% of the wall height), vertical
   // panel seams between the window stations, a row of BIG windows
-  // (48x72, ~22.5% of the wall) every 32z, and a tall entry DOOR every
-  // 3rd station (40x110, ~34% of the wall, glass on top — Subway's
-  // doors break the wall into segments). The seams are drawn FIRST so
-  // the stripes paint over them at the stripe bands; the windows/doors
-  // are drawn last, on top. All of it follows the wall's perspective
-  // (interpolated with scaleAt / laneX / groundY at each station z).
-  // Drawn before the rear face, so the face art occludes any overlap
-  // at the near edge.
+  // every 32z, and a tall entry DOOR every 3rd station (~34% of the
+  // wall, glass on top — Subway's doors break the wall into segments).
+  // The seams are drawn FIRST so the stripes paint over them at the
+  // stripe bands; the windows/doors are drawn last, on top. All of it
+  // follows the wall's perspective (interpolated with scaleAt / laneX /
+  // groundY at each station z). Drawn before the rear face, so the face
+  // art occludes any overlap at the near edge.
+  // v15.3: the windows/doors are TRUE PERSPECTIVE QUADS now, not
+  // screen-space rects. The v15.2 rects were square to the screen
+  // while the wall slants away: far down the wall a rect (∝ scale)
+  // outgrew the station spacing (∝ scale²), so the windows piled up
+  // ~50% into a staircase of floating pale cards (live-check t3/s1 —
+  // the same "thẻ lơ lửng / lõi" An complained about, new shape).
+  // A quad is a rectangle ON the wall (a z-extent × a height-extent),
+  // projected corner by corner, so it follows the wall's slant and
+  // shrinks with it — it occupies the same fraction of the spacing at
+  // every distance, and the dark wall shows between the windows.
   // v15.2: TWO guards so the detail never reads as floating cards.
   // (1) Only the NEAR-side wall (facing the camera) carries detail —
   // the far-side wall is hidden behind the body, and its windows
@@ -1648,43 +1657,56 @@ function drawTrain(e){
     ctx.lineTo(wallX(z2), groundY(z2) - d.h * s2 * 0.70);
     ctx.closePath();
     ctx.fill();
-    // windows and doors, upper-middle of the wall — v15.2: BIG windows
-    // (~22.5% of the wall) with thick raised frames: a dark frame, a
-    // pale top edge (catches the light), pale glass, and a dark shade
-    // under the glass (reads as recessed, not a sticker). Every 3rd
-    // station is a DOOR instead: a tall dark-framed panel with a glass
-    // window on top, a body-coloured lower panel and a centre seam.
+    // v15.3: windows and doors as TRUE PERSPECTIVE QUADS (see the
+    // note above) — a rectangle ON the wall: z from z0 to z1, height
+    // from hBot to hTop (local units above the ground), each corner
+    // projected through laneX / groundY / scaleAt. The wall clip
+    // stays as a backstop, but a quad is inside the wall by
+    // construction, so nothing can stick out past the silhouette.
+    const wallQuad = (z0, z1, hBot, hTop) => {
+      ctx.beginPath();
+      ctx.moveTo(wallX(z0), groundY(z0) - hBot * U * scaleAt(z0));
+      ctx.lineTo(wallX(z1), groundY(z1) - hBot * U * scaleAt(z1));
+      ctx.lineTo(wallX(z1), groundY(z1) - hTop * U * scaleAt(z1));
+      ctx.lineTo(wallX(z0), groundY(z0) - hTop * U * scaleAt(z0));
+      ctx.closePath();
+    };
+    const wallQuadFill = (z0, z1, hBot, hTop, style) => {
+      ctx.fillStyle = style;
+      wallQuad(z0, z1, hBot, hTop);
+      ctx.fill();
+    };
+    // windows and doors, upper-middle of the wall — v15.3: quads now
+    // (16z × 54 local windows, ~17% of the wall; 20z × 110 doors,
+    // ~34% of the wall), each with a thick raised frame: a dark frame
+    // quad, a pale top edge (catches the light), pale glass, and a
+    // dark shade under the glass (reads as recessed, not a sticker).
+    // Every 3rd station is a DOOR instead: a tall dark-framed panel
+    // with a glass window on top, a body-coloured lower panel and a
+    // centre seam.
     let station = 0;
     for (let z = zA + WIN_FIRST_OFF; z < z2 - 8; z += WIN_STEP_Z, station++) {
       const sz = scaleAt(z);
       if (sz < WIN_MIN_S) continue;
-      const cx = wallX(z), cy = groundY(z) - WIN_CY_LOCAL * U * sz;
-      const fr = Math.max(1.5, 3.5 * U * sz);
+      const zc = z, cyH = WIN_CY_LOCAL;
       if (station % 3 === 0) {
-        // entry door (40x110 local, ~34% of the wall)
-        const dw = DOOR_W_LOCAL * U * sz, dh = DOOR_H_LOCAL * U * sz;
-        ctx.fillStyle = WIN_FRAME;
-        ctx.fillRect(cx - dw / 2 - fr, cy - dh / 2 - fr, dw + 2 * fr, dh + 2 * fr);
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.fillRect(cx - dw / 2 - fr, cy - dh / 2 - fr, dw + 2 * fr, Math.max(1, 2 * U * sz));
-        ctx.fillStyle = WIN_GLASS;
-        ctx.fillRect(cx - dw / 2, cy - dh / 2, dw, dh * 0.42);
-        ctx.fillStyle = c.side;
-        ctx.fillRect(cx - dw / 2, cy - dh / 2 + dh * 0.42, dw, dh * 0.58);
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
-        ctx.fillRect(cx - Math.max(1, 1.5 * U * sz) / 2, cy - dh / 2, Math.max(1, 1.5 * U * sz), dh);
-        ctx.fillRect(cx - dw / 2, cy - dh / 2 + dh * 0.42 - Math.max(1, 1.5 * U * sz) / 2, dw, Math.max(1, 1.5 * U * sz));
+        // entry door (20z × 110 local, ~34% of the wall)
+        const dHalf = DOOR_W_Z / 2, dBot = cyH - DOOR_H_LOCAL / 2, dTop = cyH + DOOR_H_LOCAL / 2;
+        const dGlassBot = dTop - DOOR_H_LOCAL * 0.42;
+        wallQuadFill(zc - dHalf - 2, zc + dHalf + 2, dBot - 4, dTop + 4, WIN_FRAME);
+        wallQuadFill(zc - dHalf - 2, zc + dHalf + 2, dTop + 2, dTop + 4, 'rgba(255,255,255,0.35)');
+        wallQuadFill(zc - dHalf, zc + dHalf, dGlassBot, dTop, WIN_GLASS);
+        wallQuadFill(zc - dHalf, zc + dHalf, dBot, dGlassBot, c.side);
+        wallQuadFill(zc - 0.75, zc + 0.75, dBot, dTop, 'rgba(0,0,0,0.35)');
+        wallQuadFill(zc - dHalf, zc + dHalf, dGlassBot - 1, dGlassBot + 1, 'rgba(0,0,0,0.35)');
         continue;
       }
-      const ww = WIN_W_LOCAL * U * sz, wh = WIN_H_LOCAL * U * sz;
-      ctx.fillStyle = WIN_FRAME;
-      ctx.fillRect(cx - ww / 2 - fr, cy - wh / 2 - fr, ww + 2 * fr, wh + 2 * fr);
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.fillRect(cx - ww / 2 - fr, cy - wh / 2 - fr, ww + 2 * fr, Math.max(1, 2 * U * sz));
-      ctx.fillStyle = WIN_GLASS;
-      ctx.fillRect(cx - ww / 2, cy - wh / 2, ww, wh);
-      ctx.fillStyle = 'rgba(0,0,0,0.30)';
-      ctx.fillRect(cx - ww / 2, cy + wh / 2 - Math.max(1, 3 * U * sz), ww, Math.max(1, 3 * U * sz));
+      // window (16z × 54 local, ~17% of the wall)
+      const wHalf = WIN_W_Z / 2, wBot = cyH - WIN_H_LOCAL / 2, wTop = cyH + WIN_H_LOCAL / 2;
+      wallQuadFill(zc - wHalf - 1.5, zc + wHalf + 1.5, wBot - 4, wTop + 4, WIN_FRAME);
+      wallQuadFill(zc - wHalf - 1.5, zc + wHalf + 1.5, wTop + 2, wTop + 4, 'rgba(255,255,255,0.35)');
+      wallQuadFill(zc - wHalf, zc + wHalf, wBot, wTop, WIN_GLASS);
+      wallQuadFill(zc - wHalf, zc + wHalf, wBot, wBot + 3, 'rgba(0,0,0,0.30)');
     }
     ctx.restore(); // end of the wall clip (v15.2)
   }
@@ -2274,8 +2296,8 @@ window.__becaRun = {
                      MULT_CAP, MULT_EVERY_M, PLAYER_Y_FRAC,
                      HORIZON_Y_FRAC,
                      RAMP_LEN, RAMP_TOP, RAMP_CHANCE, RAMP_STEPS, RAMP_W_FRAC,
-                     WIN_W_LOCAL, WIN_H_LOCAL, WIN_STEP_Z, WIN_CY_LOCAL,
-                     DOOR_W_LOCAL, DOOR_H_LOCAL, SKIRT_FRAC, FASCIA_FRAC }; },
+                     WIN_W_Z, WIN_H_LOCAL, WIN_STEP_Z, WIN_CY_LOCAL,
+                     DOOR_W_Z, DOOR_H_LOCAL, SKIRT_FRAC, FASCIA_FRAC }; },
   resize,
   trackScroll(){ return trackScroll; },
   assets(){
