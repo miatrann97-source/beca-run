@@ -5,6 +5,7 @@ W.addEventListener('load',function(){var iv=setInterval(function(){var g;try{g=W
 function stage(g){var S=g.S;if(done)return;done=true;
 if(scene==='cut-d'){g.start();setInterval(function(){S.cutT=3.1;},16);return;}
 if(scene==='wolf'){g.start();g.skipCutscene();setInterval(function(){S.runTime=1;S.spawnAcc=0;S.entities=[];S.distance=100;},16);return;}
+if(scene==='bot'){g.start();g.skipCutscene();setInterval(function(){if(S.mode!=='playing')return;var safe=[-1,0,1].filter(function(l){return !S.entities.some(function(e){return e.lane===l&&e.z>-10&&e.z<300&&(e.kind==='train'||e.kind==='low'||e.kind==='over');});});if(safe.length&&safe.indexOf(S.lane)<0)S.lane=safe[0];},16);return;}
 g.start();g.skipCutscene();
 var L=g.layout();
 function T(lane,z,len,color,ramp){return{kind:'train',lane:lane,z:z,len:len,color:color,ramp:!!ramp}}
