@@ -39,7 +39,7 @@
   }
   #hud .score { font-size:20px; }
   #hud .score small { display:block; font-size:11px; opacity:.9; letter-spacing:1px; }
-  #hud .coins { font-size:18px; }
+  #hud .stars { font-size:18px; }
   /* ---------- overlays ---------- */
   .overlay {
     position:absolute; inset:0; z-index:10;
@@ -80,7 +80,17 @@
   .btn:active { transform:translateY(4px); box-shadow:0 2px 0 #d96f00; }
   .best { margin-top:12px; font-size:15px; font-weight:800; text-shadow:0 2px 4px rgba(0,40,90,.6); }
   .best b { color:#ffe082; }
-  #gameover .big { font-size:44px; font-weight:900; text-shadow:0 4px 0 #1b6fb8, 0 8px 18px rgba(0,40,90,.5); }
+  /* game over: the wolf caught her — crying bé cá, wolf right behind */
+  #gameover .catch { display:flex; align-items:flex-end; gap:4px; margin:4px 0 2px; }
+  #gameover .catch img.cry {
+    height:150px; width:auto;
+    filter:drop-shadow(0 10px 14px rgba(0,40,90,.5));
+  }
+  #gameover .catch img.wolf {
+    height:102px; width:auto; margin-bottom:2px;
+    filter:drop-shadow(0 8px 12px rgba(0,40,90,.45));
+  }
+  #gameover .big { font-size:38px; font-weight:900; text-shadow:0 4px 0 #1b6fb8, 0 8px 18px rgba(0,40,90,.5); }
   #gameover .stats {
     background:rgba(255,255,255,.92); color:#14568f; border-radius:16px;
     padding:14px 22px; margin:16px 0; font-size:19px; line-height:1.9; font-weight:800;
@@ -108,34 +118,37 @@
 
   <div id="hud" class="hidden">
     <div class="pill score"><small>ĐIỂM · SCORE</small><span id="score">0</span></div>
-    <div class="pill coins">🪙 <span id="coins">0</span></div>
+    <div class="pill stars">★ <span id="stars">0</span></div>
   </div>
 
-  <div id="hint" class="hidden">Vuốt ◀ ▶ đổi làn · Vuốt ▲ nhảy · Vuốt ▼ trượt · Chạm để nhảy</div>
+  <div id="hint" class="hidden">Vuốt ◀ ▶ đổi làn · Vuốt ▲ / chạm để nhảy qua rào · Lượm ★ sao vàng!</div>
 
   <div id="menu" class="overlay">
     <div class="title">BÉ CÁ<br>CHẠY</div>
-    <div class="subtitle">Chạy dọc bờ biển, lượm xu, né chướng ngại vật!</div>
-    <div class="subtitle-en">Run along the beach, collect coins, dodge obstacles!</div>
+    <div class="subtitle">Sói đang rình phía sau — chạy nhanh, lượm sao vàng, nhảy qua rào!</div>
+    <div class="subtitle-en">A wolf is on your tail — run fast, grab gold stars, jump the barriers!</div>
     <img class="hero" src="art/beca-run-front.png" alt="Bé cá">
     <div class="howto">
       <span class="k">◀ ▶</span> hoặc vuốt ngang: đổi làn<br>
-      <span class="k">▲</span> / chạm màn hình: nhảy qua rào<br>
-      <span class="k">▼</span>: trượt dưới biển báo<br>
-      Cầu thang vali: cứ chạy thẳng lên, không cần né!<br>
-      Lượm <b>🪙 xu vàng</b> để cộng điểm!
+      <span class="k">▲</span> / chạm màn hình: nhảy qua rào chắn<br>
+      Lượm <b>★ sao vàng</b> to để cộng điểm!<br>
+      7 giây đầu sói đuổi ngay sau lưng — đừng để bị bắt!
     </div>
     <button class="btn" id="startBtn">CHẠY THÔI! ▶</button>
     <div class="best">Kỷ lục · Best: <b id="bestMenu">0</b></div>
   </div>
 
   <div id="gameover" class="overlay hidden">
-    <div class="big">HẾT RỒI!</div>
-    <div class="subtitle">Bé cá vấp phải chướng ngại vật</div>
-    <div class="subtitle-en">Game over — bé cá tripped!</div>
+    <div class="catch">
+      <img class="wolf" src="art/wolf-run.png" alt="Sói">
+      <img class="cry" src="art/beca-cry.png" alt="Bé cá khóc">
+    </div>
+    <div class="big">SÓI BẮT ĐƯỢC CÁ RỒI!</div>
+    <div class="subtitle">Bé cá khóc òa — sói đã đuổi kịp!</div>
+    <div class="subtitle-en">The wolf caught her!</div>
     <div class="stats">
       Điểm · Score: <b id="finalScore">0</b><br>
-      Xu · Coins: <b id="finalCoins">0</b><br>
+      Sao · Stars: <b id="finalStars">0</b><br>
       Quãng đường: <b id="finalDist">0</b> m
     </div>
     <div class="newbest hidden" id="newBest">🎉 Kỷ lục mới! New best!</div>
@@ -147,12 +160,24 @@
 <script>
 "use strict";
 /* ============================================================
-   BÉ CÁ CHẠY — Subway Surfers-style endless runner
-   Full 3D world, camera behind the character, wide brown dirt
-   ground filling the whole screen edge-to-edge — no rails, bé cá
-   runs straight on the ground. A real race, not a jog.
-   Big sparkly coins, obstacles spilling edge-to-edge, suitcase
-   staircases you run up and over. Clean ground, no little props.
+   BÉ CÁ CHẠY — v8: the wolf chase
+   Subway Surfers-style endless runner, 3 lanes, camera behind
+   the character, wide brown dirt ground filling the whole screen
+   edge-to-edge. A real race, not a jog.
+   - Intro cutscene: bé cá steps on the sleeping wolf's tail,
+     the wolf wakes up angry — then the chase is on.
+   - Wolf chase: the wolf runs right behind bé cá for the first
+     ~7 s of every run, then gives up and fades away.
+   - Game over: the wolf CATCHES her — crying bé cá on screen.
+   - ONLY obstacle: the low 3D box-beam barrier (1.2 lanes wide).
+     Dodge by switching lanes OR jump over it. No signs, no ramps,
+     no sliding — those mechanics are gone entirely.
+   - Gold stars (as big as bé cá herself) replace the old coins.
+   - Turns: the road bends left/right — horizon and lanes shift,
+     with a big turn arrow. Rope swings: grab a rope over a gap
+     and swing across (automatic, always succeeds).
+   - Higher jump (~1.5x apex), faster lane switching, new
+     realistic forest bg (horizon re-measured from the new art).
    Ground streaks rush past so she reads as running FORWARD.
    No screen shake anywhere (gentle motion only).
    ============================================================ */
@@ -165,39 +190,53 @@ const SPEED_BASE = 85;      // the race starts fast
 const SPEED_MAX  = 230;
 const SPEED_RAMP = 2.2;     // speed builds quickly
 const CHAR_H_BASE = 185;    // character height, logical px — big and prominent
-const SLIDE_H_BASE = 80;    // slide-pose sprite height — low, never squashed
 const SPAWN_Z = 230;        // spawn distance ahead
-const HIT_Z = 9;            // z window where collisions count
-const SLIDE_T = 0.75;       // slide duration (s)
-/* Obstacle sizes — the ground is wide brown dirt now (no rails), so the
-   obstacles are WIDE and spill across the ground and onto the sides,
-   edge-to-edge. Drawn size = collision size: what you see is what kills you.
-   - low fence: fixed low height (always jumpable); its 5.38 aspect makes it
-     span the whole ground — a full-width hurdle you must jump.
-   - overhead sign: 3.6 lanes wide, spanning the whole screen like the fence;
-     the gap under it is half its height, roomy enough to slide under.
-   - suitcase ramp: 2.4 lanes wide, a staircase you RUN UP and over — it
-     never blocks its lane, so it can be as wide as it looks good.
-   Coins are big and sparkly (30 local units, was 17). */
-const LOW_H_BASE = 80;        // low fence height, local units
-const OVER_W_LANES = 3.6;     // overhead sign width, in lane units (full screen)
-const RAMP_W_LANES = 2.4;     // suitcase staircase width, in lane units
-const RAMP_LEN = 45;          // climb zone half-length, in z units
-const OVER_GAP_FRAC = 0.493;  // open space below the sign, fraction of its height
-const COIN_R_BASE = 30;       // coin half-size, local units (was 17 — big now)
-const COIN_PICKUP_BASE = 58;  // coin pickup window, local units (was 46)
+const HIT_Z = 9;            // z window where collisions / pickups count
+const LANE_LERP = 22;       // lane-change smoothing rate (was 10 — laggy)
+/* The ONLY obstacle: a low 3D box-beam barrier, 1.2 lanes wide, so a
+   lane switch always dodges it — and it is low enough to jump over.
+   Drawn size = collision size: what you see is what kills you.
+   barrier-low-3d.png is 968x180 (aspect 5.378), so a 1.2-lane-wide
+   beam is ~28 local units tall on iPhone — a proper hurdle. */
+const LOW_W_LANES = 1.2;      // barrier width, in lane units
+const LOW_W_LANES_MAX = 1.3;  // (kept in the fairness cap, see spawnPattern)
+/* Gold stars: as big as bé cá's whole body (185 local units tall),
+   so they are impossible to miss. Pickup window scaled to the star. */
+const STAR_H_BASE = 185;      // star height, local units — = character height
+const STAR_PICKUP_BASE = 100; // star pickup window, local units (was 58 for coins)
 const STREAK_N = 14;          // ground streaks rushing past (forward-motion cue)
-const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units (forgiving vs the wide hood)
-const PLAYER_HW_SLIDE_BASE = 40; // slide-pose hitbox half-width — the pose is stretched out
-const BG_HORIZON_FRAC = 0.51; // where the dirt path vanishes in bg-3d.png (fraction of image height)
+const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units
+/* BG_HORIZON_FRAC re-measured from the NEW bg-3d.png (800x1600):
+   centre column runs turquoise sea down to y≈625, then dirt begins
+   (y≈630) — 630/1600 = 0.394. The old 0.51 belonged to the old art
+   and would have parked distant objects on the sea. */
+const BG_HORIZON_FRAC = 0.39;
+/* Jump: apex was 97.2 local units (V=540, G=1500). 1.5x apex = 145.8,
+   so V = sqrt(2*G*145.8) ≈ 661 with G unchanged — same floaty feel,
+   clearly higher. */
+const JUMP_V_BASE = 661;
+const JUMP_G_BASE = 1500;
+const OLD_JUMP_APEX = 97.2;   // v7 apex, local units — for the test hook
+/* Wolf chase: visible for the first ~7 s of each run, fading out
+   over the last second. */
+const WOLF_CHASE_T = 7;
+/* Cutscene: ~3.6 s total, skippable by tapping. */
+const CUT_DUR = 3.6;
+const CUT_A = 1.2, CUT_B = 1.9, CUT_C = 2.7; // phase boundaries (s)
+/* Turns: the view centre eases sideways by 17% of screen width. */
+const TURN_SHIFT_FRAC = 0.17;
+const TURN_DUR = 2.4;        // seconds a bend lasts
+/* Rope swing: automatic, 0.9 s from grab to landing. */
+const SWING_DUR = 0.9;
 
 /* ---------- responsive full-bleed layout ---------- */
 // Logical design height is 800 units; U scales it to the real viewport.
 // VW/VH are CSS pixels of the actual screen (e.g. 390x844 on An's iPhone).
 let VW = 480, VH = 800, U = 1;
 let CENTER_X = 240, HORIZON_Y = 250, PLAYER_Y = 692, LANE_HALF = 132;
-let CHAR_H = 185, JUMP_V = 540, JUMP_G = 1500;
-let PLAYER_HW = 28, PLAYER_HW_SLIDE = 40; // player hitbox half-widths, screen px
+let CHAR_H = 185, JUMP_V = 661, JUMP_G = 1500;
+let PLAYER_HW = 28;
+let TURN_SHIFT = 80; // px the view centre shifts during a bend
 
 function resize(w, h){
   let vw, vh;
@@ -212,10 +251,10 @@ function resize(w, h){
   PLAYER_Y = VH * 0.865;
   LANE_HALF = Math.min(VW * 0.32, VH * 0.185);
   CHAR_H = CHAR_H_BASE * U;
-  JUMP_V = 540 * U;
-  JUMP_G = 1500 * U;
+  JUMP_V = JUMP_V_BASE * U;
+  JUMP_G = JUMP_G_BASE * U;
   PLAYER_HW = PLAYER_HW_BASE * U;
-  PLAYER_HW_SLIDE = PLAYER_HW_SLIDE_BASE * U;
+  TURN_SHIFT = VW * TURN_SHIFT_FRAC;
   const dpr = (typeof window !== 'undefined' && window.devicePixelRatio)
     ? Math.min(2, window.devicePixelRatio) : 1;
   canvas.width = Math.max(1, Math.round(VW * dpr));
@@ -227,51 +266,59 @@ if (typeof window !== 'undefined' && window.addEventListener)
   window.addEventListener('resize', function(){ resize(); });
 
 const $ = id => document.getElementById(id);
-const hudEl=$('hud'), scoreEl=$('score'), coinsEl=$('coins'),
+const hudEl=$('hud'), scoreEl=$('score'), starsEl=$('stars'),
       menuEl=$('menu'), overEl=$('gameover'), hintEl=$('hint'),
       bestMenuEl=$('bestMenu'), bestOverEl=$('bestOver');
 
-/* ---------- assets (all 3D style, matching the bé cá) ---------- */
+/* ---------- assets ---------- */
 function loadImg(src){ const img = new Image(); img.src = src; return img; }
 function imgReady(img){ return img.complete && img.naturalWidth > 0; }
 const bgImg = loadImg('art/bg-3d.png');
-const imgCoin = loadImg('art/coin-3d.png');
+const imgStar = loadImg('art/star-3d.png');
 const imgLow = loadImg('art/barrier-low-3d.png');
-const imgOver = loadImg('art/bar-over-3d.png');
-/* suitcase staircase — run up it and over the top, never a wall to dodge */
-const imgRamp = loadImg('art/ramp-3d.png');
-/* run cycle: 4 frames of the bé cá from behind — the legs visibly move */
+/* the wolf: running (chase + game over) and sitting/sleeping (cutscene) */
+const imgWolfRun = loadImg('art/wolf-run.png');
+const imgWolfSit = loadImg('art/wolf-sit.png');
+/* crying bé cá, front view — the game-over moment */
+const imgCry = loadImg('art/beca-cry.png');
+/* run cycle: 4 frames of the bé cá from behind — realistic human-like
+   gait, arms swinging, knees bending (900 px tall each) */
 const runFrames = [
   loadImg('art/beca-run-back.png'),   // frame 1: left leg forward
   loadImg('art/run-frame2.png'),      // frame 2: legs together
   loadImg('art/run-frame3.png'),      // frame 3: right leg forward
-  loadImg('art/run-frame4.png'),      // frame 4: legs together
+  loadImg('art/run-frame4.png'),      // frame 4: legs together, opposite phase
 ];
 const spriteFront = loadImg('art/beca-run-front.png');
-/* proper slide pose — a real low slide, never squashed flat */
-const imgSlide = loadImg('art/slide-pose.png');
 
 /* ---------- state ---------- */
 const S = {
-  mode: 'menu',           // menu | playing | over
+  mode: 'menu',           // menu | cutscene | playing | over
   time: 0,                // global clock (s)
   runTime: 0,             // time since run started
   speed: SPEED_BASE,      // units / s
   distance: 0,            // units travelled
   score: 0,
-  coins: 0,
+  stars: 0,
   best: 0,
   lane: 0,                // -1, 0, 1
   charX: CENTER_X,        // smoothed screen x
   jumpT: -1,              // jump timer (<0 = not jumping)
-  slideT: -1,             // slide timer (<0 = not sliding)
-  entities: [],           // {kind:'low'|'over'|'ramp'|'coin', lane, z, h, taken, passed}
+  entities: [],           // {kind:'low'|'star'|'rope', lane, z, h, taken, passed}
   streaks: [],            // ground streaks rushing past {x (lane units), z, dark}
   spawnAcc: 0,            // distance since last pattern
   nextGap: 58,
   patterns: 0,            // patterns spawned (test hook)
   over: false,
   newBest: false,
+  cutT: 0,                // cutscene clock (s)
+  turnX: 0,               // current view-centre offset (px) — the bend
+  turn: { active:false, dir:0, t:0, dur:TURN_DUR, nextAt:500 },
+  nextRopeAt: 900,        // distance at which the next rope section spawns
+  swingT: -1,             // rope-swing timer (<0 = not swinging)
+  turnCount: 0,           // bends started (test hook)
+  ropeCount: 0,           // rope sections spawned (test hook)
+  swingCount: 0,          // swings completed-started (test hook)
 };
 try { S.best = parseInt(localStorage.getItem('becaRunBest') || '0', 10) || 0; } catch(e) { S.best = 0; }
 function saveBest(){ try { localStorage.setItem('becaRunBest', String(S.best)); } catch(e){} }
@@ -287,69 +334,54 @@ function runFrameIndex(){
   // ~13 fps at base speed, ~22 fps at max
   return Math.floor(S.runTime * runFps()) % 4;
 }
-/* Height while running up a suitcase staircase in the player's lane.
-   The ramp's centre is at e.z; the climb zone is |e.z| < RAMP_LEN:
-   rise smoothly to the top as it approaches, descend after passing. */
-function climbHeight(){
-  if (S.mode !== 'playing') return 0;
-  let h = 0;
-  const top = obstDims('ramp').h;
-  for (const e of S.entities) {
-    if (e.kind !== 'ramp' || e.lane !== S.lane) continue;
-    if (Math.abs(e.z) >= RAMP_LEN) continue;
-    h = Math.max(h, top * (1 - Math.abs(e.z) / RAMP_LEN));
-  }
-  return h;
+/* The view centre: during a bend it eases sideways, and the lanes,
+   the streaks and the background shift with it — the road visibly
+   bends left/right. Straight sections: viewCX === CENTER_X. */
+function viewCX(){ return CENTER_X + S.turnX; }
+function wolfVisible(){ return S.mode === 'playing' && S.runTime < WOLF_CHASE_T; }
+function wolfAlpha(){
+  if (!wolfVisible()) return 0;
+  if (S.runTime < WOLF_CHASE_T - 1) return 1;
+  return Math.max(0, WOLF_CHASE_T - S.runTime); // fades over the last second
 }
 
 /* ---------- perspective helpers ---------- */
 function scaleAt(z){ return 1 / (1 + z / 55); }
-function laneX(lane, z){ return CENTER_X + lane * LANE_HALF * scaleAt(z); }
+function laneX(lane, z){ return viewCX() + lane * LANE_HALF * scaleAt(z); }
 function groundY(z){ return HORIZON_Y + (PLAYER_Y - HORIZON_Y) * scaleAt(z); }
 
-/* ---------- obstacle sizes: drawn size = collision size ---------- */
-function obstImg(kind){
-  return kind === 'low' ? imgLow : kind === 'over' ? imgOver : imgRamp;
-}
+/* ---------- obstacle size: drawn size = collision size ---------- */
 function obstDims(kind){
-  // {w, h} in screen px at scale 1 — the size at the player's z.
-  // The low fence is height-driven (low and wide, always jumpable);
-  // the sign and the staircase are width-driven (wide, spilling across
-  // the ground and onto the sides).
-  const img = obstImg(kind);
-  const aspect = imgReady(img) ? img.naturalWidth / img.naturalHeight : 1;
-  if (kind === 'low') {
-    const h = LOW_H_BASE * U;
+  // The barrier is width-driven: 1.2 lanes wide, height from its real
+  // aspect (968x180). A star is height-driven: as tall as bé cá.
+  if (kind === 'star') {
+    const h = STAR_H_BASE * U;
+    const aspect = imgReady(imgStar) ? imgStar.naturalWidth / imgStar.naturalHeight : 1;
     return { w: h * aspect, h };
   }
-  if (kind === 'over') {
-    const w = OVER_W_LANES * LANE_HALF;
-    return { w, h: w / aspect };
-  }
-  // ramp: width-driven; h is the climb height (top of the staircase)
-  const w = RAMP_W_LANES * LANE_HALF;
+  const img = imgLow;
+  const aspect = imgReady(img) ? img.naturalWidth / img.naturalHeight : 5.378;
+  const w = LOW_W_LANES * LANE_HALF;
   return { w, h: w / aspect };
 }
 function lowBarH(){ return obstDims('low').h; }            // height the jump must clear
-function overGap(){ return obstDims('over').h * OVER_GAP_FRAC; } // room under the sign
-function rampH(){ return obstDims('ramp').h; }              // staircase top = climb height
+function starH(){ return obstDims('star').h; }              // star height (screen px)
+function jumpApex(){ return (JUMP_V * JUMP_V) / (2 * JUMP_G); } // apex, screen px
 
 /* ---------- spawn fairness ---------- */
-// A row is fair if some lane lets the player through: stand (no overlap),
-// jump (overlap only with low fences), or slide (overlap only with overhead
-// signs). A suitcase ramp never blocks — you just run up it — so it is
-// skipped here. Overlapping a low fence AND a sign at once is fatal
-// (you cannot jump and slide together).
+// A row is fair if some lane lets the player through: stand (no overlap)
+// or jump (overlap only with low barriers — and every barrier IS a low
+// barrier, so jumping always works). Rows are built with at most 2
+// barriers, so a free lane always exists as well.
 function lanePassable(lane, row){
   const ways = [
-    { pw: PLAYER_HW,       kinds: [] },       // stand: nothing may touch the player
-    { pw: PLAYER_HW,       kinds: ['low'] },  // jump: only low fences may touch
-    { pw: PLAYER_HW_SLIDE, kinds: ['over'] }, // slide: only signs may touch
+    { pw: PLAYER_HW, kinds: [] },      // stand: nothing may touch the player
+    { pw: PLAYER_HW, kinds: ['low'] }, // jump: only low barriers may touch
   ];
   for (const way of ways) {
     let ok = true;
     for (const o of row) {
-      if (o.kind === 'ramp') continue; // a staircase is climbed, never a wall
+      if (o.kind !== 'low') continue;
       const d = obstDims(o.kind);
       const dx = Math.abs(lane - o.lane) * LANE_HALF;
       if (dx < d.w / 2 + way.pw && !way.kinds.includes(o.kind)) { ok = false; break; }
@@ -361,42 +393,54 @@ function lanePassable(lane, row){
 function rowIsFair(row){
   return [-1, 0, 1].some(l => lanePassable(l, row));
 }
+function rowFreeLane(row){
+  // a lane no barrier overlaps at all (the stronger design guarantee:
+  // every row leaves a lane you can simply run through)
+  for (const l of [-1, 0, 1]) {
+    let free = true;
+    for (const o of row) {
+      if (o.kind !== 'low') continue;
+      const d = obstDims(o.kind);
+      if (Math.abs(l - o.lane) * LANE_HALF < d.w / 2 + PLAYER_HW) { free = false; break; }
+    }
+    if (free) return true;
+  }
+  return false;
+}
 
 /* ---------- controls ---------- */
 function moveLeft(){ if (S.mode !== 'playing') return; if (S.lane > -1) S.lane--; }
 function moveRight(){ if (S.mode !== 'playing') return; if (S.lane < 1) S.lane++; }
 function doJump(){
   if (S.mode !== 'playing') return;
-  if (S.jumpT < 0) { S.jumpT = 0; S.slideT = -1; }
-}
-function doSlide(){
-  if (S.mode !== 'playing') return;
-  if (S.slideT < 0 && S.jumpT < 0) S.slideT = 0;
+  if (S.swingT >= 0) return; // mid-swing: hands are on the rope
+  if (S.jumpT < 0) S.jumpT = 0;
 }
 function jumpHeight(){
   if (S.jumpT < 0) return 0;
   const t = S.jumpT;
   return Math.max(0, JUMP_V * t - 0.5 * JUMP_G * t * t);
 }
-function isSliding(){ return S.slideT >= 0; }
+function isSwinging(){ return S.swingT >= 0; }
 
 document.addEventListener('keydown', e => {
   if (e.repeat) return;
+  if (S.mode === 'cutscene') { skipCutscene(); e.preventDefault(); return; }
   if (e.key === 'ArrowLeft')  { moveLeft();  e.preventDefault(); }
   if (e.key === 'ArrowRight') { moveRight(); e.preventDefault(); }
   if (e.key === 'ArrowUp' || e.key === ' ') { doJump(); e.preventDefault(); }
-  if (e.key === 'ArrowDown')  { doSlide(); e.preventDefault(); }
   if (e.key === 'Enter') {
     if (S.mode === 'menu') startGame();
     else if (S.mode === 'over') startGame();
   }
 });
 
-/* touch: swipe to move / jump / slide, tap to jump */
+/* touch: swipe to move / jump, tap to jump; tap during the cutscene skips it */
 let touchStart = null;
 wrap.addEventListener('touchstart', e => {
   // Let buttons (Start / Play again) handle their own taps — do not swallow their click on iOS.
   if (e.target.closest('button')) return;
+  if (S.mode === 'cutscene') { skipCutscene(); return; }
   const t = e.changedTouches[0];
   touchStart = { x: t.clientX, y: t.clientY, t: performance.now() };
   e.preventDefault();
@@ -411,11 +455,16 @@ wrap.addEventListener('touchend', e => {
   const dt = performance.now() - touchStart.t;
   if (Math.max(adx, ady) < 24 && dt < 400) { doJump(); }           // tap = jump
   else if (adx > ady) { dx > 0 ? moveRight() : moveLeft(); }       // horizontal swipe
-  else { dy < 0 ? doJump() : doSlide(); }                          // vertical swipe
+  else if (dy < 0) { doJump(); }                                   // swipe up = jump
   touchStart = null;
   e.preventDefault();
 }, { passive:false });
 wrap.addEventListener('touchmove', e => { if (e.target.closest('button')) return; e.preventDefault(); }, { passive:false });
+/* desktop click skips the cutscene too (buttons excluded, same as touch) */
+wrap.addEventListener('click', e => {
+  if (e.target.closest('button')) return;
+  if (S.mode === 'cutscene') skipCutscene();
+});
 
 /* Ground streaks: thin dirt dashes on the brown ground that rush past
    at world speed — the main "running FORWARD" cue. */
@@ -426,55 +475,56 @@ function newStreak(anyZ){
 
 /* ---------- spawning ---------- */
 function spawnPattern(){
-  // Pick a pattern that always leaves a fair way through.
+  // Only barriers (1–2 per row, never full-width) and gold stars.
+  // Every row leaves a free lane by construction; the fairness safety
+  // net below still guards against any impossible row.
   S.patterns++;
   const r = Math.random();
   const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
-  const row = []; // obstacles in this row, for the fairness check below
-  const addObst = (kind, lane, z) => {
-    const e = { kind, lane, z: z === undefined ? SPAWN_Z : z };
+  const row = []; // barriers in this row, for the fairness check below
+  const addBarrier = (lane, z) => {
+    const e = { kind:'low', lane, z: z === undefined ? SPAWN_Z : z };
     S.entities.push(e); row.push(e); return e;
   };
-  const addCoin = (lane, z, h) => S.entities.push({ kind:'coin', lane, z, h: h || 0 });
-  if (r < 0.26) {
-    // coin line on one lane
+  const addStar = (lane, z, h) => S.entities.push({ kind:'star', lane, z, h: h || 0 });
+  const addStarArc = (lane, z0) => {
+    addStar(lane, z0, 0);
+    addStar(lane, z0 + 12, 110); // high star — jump for it (apex ~146)
+    addStar(lane, z0 + 24, 0);
+  };
+  if (r < 0.22) {
+    // star line on one lane
     const L = lanes[0];
-    for (let i = 0; i < 5; i++) addCoin(L, SPAWN_Z + i*12, 0);
-  } else if (r < 0.40) {
-    // low fence on one lane + coins on another — the fence spans the ground,
-    // so the player jumps it wherever they are
-    addObst('low', lanes[0]);
-    for (let i = 0; i < 4; i++) addCoin(lanes[1], SPAWN_Z + i*12, 0);
+    for (let i = 0; i < 5; i++) addStar(L, SPAWN_Z + i*12, 0);
+  } else if (r < 0.38) {
+    // one barrier + stars on another lane
+    addBarrier(lanes[0]);
+    for (let i = 0; i < 4; i++) addStar(lanes[1], SPAWN_Z + i*12, 0);
   } else if (r < 0.52) {
-    // overhead sign on one lane + coins on another — slide under the sign
-    addObst('over', lanes[0]);
-    for (let i = 0; i < 4; i++) addCoin(lanes[1], SPAWN_Z + i*12, 0);
+    // two barriers + stars on the free lane
+    addBarrier(lanes[0]);
+    addBarrier(lanes[1]);
+    for (let i = 0; i < 4; i++) addStar(lanes[2], SPAWN_Z + i*12, 0);
   } else if (r < 0.64) {
-    // suitcase staircase on one lane + coins on another — just run up it
-    addObst('ramp', lanes[0]);
-    for (let i = 0; i < 4; i++) addCoin(lanes[1], SPAWN_Z + i*12, 0);
-  } else if (r < 0.74) {
-    // staircase on one lane, low fence on another — jump the fence,
-    // or let the staircase carry you over it
-    addObst('ramp', lanes[0]);
-    addObst('low', lanes[1]);
-  } else if (r < 0.84) {
-    // staircase on one lane + a coin arc to jump for on another lane
-    addObst('ramp', lanes[0]);
-    addCoin(lanes[1], SPAWN_Z, 0);
-    addCoin(lanes[1], SPAWN_Z + 12, 75);
-    addCoin(lanes[1], SPAWN_Z + 24, 0);
+    // star arc + a barrier on another lane
+    addStarArc(lanes[0], SPAWN_Z);
+    addBarrier(lanes[1], SPAWN_Z + 6);
+  } else if (r < 0.76) {
+    // one barrier + a star arc on another lane
+    addBarrier(lanes[0]);
+    addStarArc(lanes[1], SPAWN_Z);
+  } else if (r < 0.88) {
+    // two barriers + a star arc on the free lane
+    addBarrier(lanes[0]);
+    addBarrier(lanes[1]);
+    addStarArc(lanes[2], SPAWN_Z);
   } else {
-    // coin arc: jump for the middle coin
-    const L = lanes[0];
-    addCoin(L, SPAWN_Z, 0);
-    addCoin(L, SPAWN_Z + 12, 75);
-    addCoin(L, SPAWN_Z + 24, 0);
-    addObst('low', lanes[1], SPAWN_Z + 6);
+    // star arc on its own
+    addStarArc(lanes[0], SPAWN_Z);
+    for (let i = 0; i < 2; i++) addStar(lanes[1], SPAWN_Z + i*12, 0);
   }
-  // Fairness safety net: a wide obstacle can intrude into a neighbouring
-  // lane, so never ship a row with no way through. If a row is impossible,
-  // drop its widest obstacle and re-check.
+  // Fairness safety net: never ship a row with no way through.
+  // If a row is impossible, drop its widest barrier and re-check.
   while (row.length > 0 && !rowIsFair(row)) {
     let widest = 0;
     for (let i = 1; i < row.length; i++) {
@@ -485,24 +535,41 @@ function spawnPattern(){
     if (idx >= 0) S.entities.splice(idx, 1);
   }
   // No side decoration any more — An wants a clean ground: the big
-  // obstacles spilling edge-to-edge fill the sides, not little props.
+  // barriers and stars fill the ground, not little props.
 }
 
 /* ---------- game flow ---------- */
 function startGame(){
-  S.mode = 'playing';
+  // Pressing play starts the cutscene first; the run begins after it
+  // (or immediately if the player taps to skip).
+  S.mode = 'cutscene';
+  S.cutT = 0;
   S.runTime = 0; S.speed = SPEED_BASE; S.distance = 0;
-  S.score = 0; S.coins = 0;
-  S.lane = 0; S.charX = CENTER_X;
-  S.jumpT = -1; S.slideT = -1;
+  S.score = 0; S.stars = 0;
+  S.lane = 0; S.charX = CENTER_X; S.turnX = 0;
+  S.jumpT = -1; S.swingT = -1;
   S.entities = [];
   S.streaks = [];
   for (let i = 0; i < STREAK_N; i++) S.streaks.push(newStreak(true));
   S.spawnAcc = 0; S.nextGap = 95;  // first pattern after a clear opening stretch
   S.patterns = 0;
   S.over = false; S.newBest = false;
+  S.turn.active = false; S.turn.t = 0; S.turn.nextAt = 450 + Math.random() * 350;
+  S.nextRopeAt = 900 + Math.random() * 600;
+  S.turnCount = 0; S.ropeCount = 0; S.swingCount = 0;
   menuEl.classList.add('hidden');
   overEl.classList.add('hidden');
+  hudEl.classList.add('hidden');
+  hintEl.classList.add('hidden');
+  updateHUD();
+}
+function skipCutscene(){
+  if (S.mode !== 'cutscene') return;
+  beginRun();
+}
+function beginRun(){
+  S.mode = 'playing';
+  S.runTime = 0;
   hudEl.classList.remove('hidden');
   hintEl.classList.remove('hidden');
   setTimeout(() => hintEl.classList.add('hidden'), 5000);
@@ -515,7 +582,7 @@ function gameOver(){
   S.newBest = S.score > S.best;
   if (S.newBest) { S.best = S.score; saveBest(); }
   $('finalScore').textContent = S.score;
-  $('finalCoins').textContent = S.coins;
+  $('finalStars').textContent = S.stars;
   $('finalDist').textContent = Math.floor(S.distance / 10);
   $('newBest').classList.toggle('hidden', !S.newBest);
   bestOverEl.textContent = S.best;
@@ -526,7 +593,7 @@ function gameOver(){
 }
 function updateHUD(){
   scoreEl.textContent = S.score;
-  coinsEl.textContent = S.coins;
+  starsEl.textContent = S.stars;
 }
 $('startBtn').addEventListener('click', startGame);
 $('againBtn').addEventListener('click', startGame);
@@ -535,25 +602,64 @@ bestMenuEl.textContent = S.best;
 /* ---------- update ---------- */
 function update(dt){
   S.time += dt;
+  if (S.mode === 'cutscene') {
+    S.cutT += dt;
+    if (S.cutT >= CUT_DUR) beginRun();
+    return;
+  }
   if (S.mode !== 'playing') return;
 
   S.runTime += dt;
   S.speed = Math.min(SPEED_MAX, SPEED_BASE + S.runTime * SPEED_RAMP);
   S.distance += S.speed * dt;
-  S.score = Math.floor(S.distance / 10) + S.coins * 10;
+  S.score = Math.floor(S.distance / 10) + S.stars * 10;
 
-  // smooth lane movement
-  const targetX = CENTER_X + S.lane * LANE_HALF;
-  S.charX += (targetX - S.charX) * Math.min(1, dt * 10);
+  /* --- turns: every ~700–1300 units the road bends left or right.
+     The view centre eases sideways (the horizon and lanes shift with
+     it) and a big arrow shows the direction. Simplified bend: the
+     photo background itself does not curve — the vanishing point,
+     lanes and streaks all shift, which reads as a bend. --- */
+  if (!S.turn.active && S.distance >= S.turn.nextAt) {
+    S.turn.active = true;
+    S.turn.t = 0;
+    S.turn.dur = TURN_DUR;
+    S.turn.dir = Math.random() < 0.5 ? -1 : 1;
+    S.turnCount++;
+  }
+  if (S.turn.active) {
+    S.turn.t += dt;
+    if (S.turn.t >= S.turn.dur) {
+      S.turn.active = false;
+      S.turn.nextAt = S.distance + 700 + Math.random() * 600;
+    }
+  }
+  const turnTarget = S.turn.active ? S.turn.dir * TURN_SHIFT : 0;
+  S.turnX += (turnTarget - S.turnX) * Math.min(1, dt * 3);
 
-  // jump / slide timers
+  /* --- rope sections: every ~1300–2000 units a rope appears over a
+     gap in the player's lane. Reaching it grabs it automatically and
+     bé cá swings across (0.9 s, always succeeds). --- */
+  if (S.distance >= S.nextRopeAt) {
+    S.entities.push({ kind:'rope', lane:S.lane, z:SPAWN_Z });
+    S.ropeCount++;
+    S.nextRopeAt = S.distance + 1300 + Math.random() * 700;
+  }
+
+  // smooth lane movement — faster lerp (22/s, was 10) + snap when close,
+  // so the character glides between lanes without lag or stutter
+  const targetX = viewCX() + S.lane * LANE_HALF;
+  S.charX += (targetX - S.charX) * Math.min(1, dt * LANE_LERP);
+  if (Math.abs(targetX - S.charX) < 2) S.charX = targetX;
+
+  // jump timer
   if (S.jumpT >= 0) {
     S.jumpT += dt;
     if (jumpHeight() <= 0 && S.jumpT > 0.1) S.jumpT = -1;
   }
-  if (S.slideT >= 0) {
-    S.slideT += dt;
-    if (S.slideT > SLIDE_T) S.slideT = -1;
+  // rope-swing timer
+  if (S.swingT >= 0) {
+    S.swingT += dt;
+    if (S.swingT >= SWING_DUR) S.swingT = -1;
   }
 
   // spawn patterns by distance — sparser now (mean gap ~108, was 69)
@@ -576,34 +682,38 @@ function update(dt){
   }
 
   // collisions / pickups in the hit zone
-  // effective height = jump + staircase climb (the ramp carries you up)
-  const pH = jumpHeight() + climbHeight();
-  const pw = isSliding() ? PLAYER_HW_SLIDE : PLAYER_HW;
+  const pH = jumpHeight();
+  const swinging = isSwinging();
   for (const e of S.entities) {
     if (e.taken || e.passed) continue;
     if (Math.abs(e.z) > HIT_Z) continue;
-    if (e.kind === 'coin') {
+    if (e.kind === 'star') {
+      // stars are collected by running into them (ground) or by
+      // jumping (high stars) — mid-swing counts too
       if (e.lane !== S.lane) continue;
-      const coinH = (e.h || 0) * U;
-      if (Math.abs(pH - coinH) < COIN_PICKUP_BASE * U) { e.taken = true; S.coins++; updateHUD(); }
+      const starHgt = (e.h || 0) * U;
+      if (Math.abs(pH - starHgt) < STAR_PICKUP_BASE * U) { e.taken = true; S.stars++; updateHUD(); }
       continue;
     }
-    // Obstacle: horizontal overlap from the DRAWN width — what you see is
-    // what kills you. A wide fence or sign can intrude into a neighbouring
-    // lane, so this is a real x-overlap check, not a lane-equality check.
+    if (e.kind === 'rope') {
+      // reaching the rope in its lane grabs it automatically
+      if (e.lane === S.lane && S.swingT < 0) {
+        S.swingT = 0; S.swingCount++; e.taken = true;
+      } else {
+        e.passed = true;
+      }
+      continue;
+    }
+    // Barrier: real x-overlap from the DRAWN width — what you see is
+    // what kills you. Mid-swing she is over the gap, so barriers
+    // cannot touch her.
+    if (swinging) continue;
     const d = obstDims(e.kind);
     const hw = (d.w / 2) * scaleAt(Math.max(0, e.z));
-    const overlap = Math.abs(S.charX - laneX(e.lane, e.z)) < hw + pw;
+    const overlap = Math.abs(S.charX - laneX(e.lane, e.z)) < hw + PLAYER_HW;
     if (!overlap) continue; // clear of it this frame; re-checked next frame
-    if (e.kind === 'low') {
-      if (pH < lowBarH() - 6 * U) { gameOver(); return; }
-      e.passed = true;
-    } else if (e.kind === 'over') {
-      if (!isSliding()) { gameOver(); return; }
-      e.passed = true;
-    } else if (e.kind === 'ramp') {
-      // a staircase is climbed, never crashed into — nothing to do here
-    }
+    if (pH < lowBarH() - 6 * U) { gameOver(); return; } // the wolf catches her
+    e.passed = true;
   }
   updateHUD();
 }
@@ -612,13 +722,14 @@ function update(dt){
 function drawBackground(){
   // Wide brown dirt ground (no rails — bé cá runs straight on the ground),
   // drawn cover-style to fill the whole screen edge-to-edge, with the dirt
-  // path's vanishing point aligned to HORIZON_Y.
+  // path's vanishing point aligned to HORIZON_Y. During a bend the whole
+  // background shifts sideways a little with the view centre.
   if (imgReady(bgImg)) {
     const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight; // 800x1600
     const horizonInImg = ih * BG_HORIZON_FRAC; // dirt path vanishes here
     const s = Math.max(VW / iw, VH / ih, (VH - HORIZON_Y) / (ih - horizonInImg));
     const dw = iw * s, dh = ih * s;
-    const dx = (VW - dw) / 2;
+    const dx = (VW - dw) / 2 + S.turnX * 0.4;
     const dy = HORIZON_Y - horizonInImg * s;
     ctx.drawImage(bgImg, dx, dy, dw, dh);
   } else {
@@ -638,7 +749,7 @@ function drawStreaks(){
     if (s < 0.08) continue;
     // lateral position converges toward the vanishing point with distance,
     // exactly like the ground does
-    const x = CENTER_X + st.x * LANE_HALF * s;
+    const x = viewCX() + st.x * LANE_HALF * s;
     const y = groundY(st.z);
     const len = 30 * U * s;
     ctx.strokeStyle = st.dark ? 'rgba(120, 84, 44, 0.45)' : 'rgba(214, 176, 128, 0.5)';
@@ -650,33 +761,36 @@ function drawStreaks(){
   }
   ctx.restore();
 }
-function drawCoin(e){
-  if (!imgReady(imgCoin)) return;
+function drawStar(e){
+  if (!imgReady(imgStar)) return;
   const s = scaleAt(e.z);
   const x = laneX(e.lane, e.z);
-  const y = groundY(e.z) - (e.h || 0) * U * s - 34 * U * s;
-  const spin = Math.abs(Math.cos(S.time * 6 + e.z * 0.2));
-  const sx = 0.25 + 0.75 * spin; // spin squash
-  const r = COIN_R_BASE * U; // BIG now — 30 (was 17), a proper reward
-  // pulsing golden glow behind the coin, so it sparkles as it approaches
-  const glow = 0.28 + 0.18 * Math.sin(S.time * 6 + e.z * 0.5);
-  const gg = ctx.createRadialGradient(x, y, 0, x, y, r * 2.4 * s);
+  // centre sits half a star above the ground (+ arc height): the star's
+  // bottom touches the dirt for ground stars
+  const h = STAR_H_BASE * U;
+  const w = h * (imgStar.naturalWidth / imgStar.naturalHeight);
+  const y = groundY(e.z) - (e.h || 0) * U * s - (h / 2) * s;
+  // gentle pulse so the star feels alive as it approaches
+  const pulse = 1 + 0.04 * Math.sin(S.time * 5 + e.z * 0.4);
+  // pulsing golden glow behind the star, so it sparkles as it approaches
+  const glow = 0.30 + 0.18 * Math.sin(S.time * 6 + e.z * 0.5);
+  const gg = ctx.createRadialGradient(x, y, 0, x, y, h * 1.3 * s);
   gg.addColorStop(0, 'rgba(255, 215, 0, ' + glow.toFixed(3) + ')');
   gg.addColorStop(1, 'rgba(255, 215, 0, 0)');
   ctx.fillStyle = gg;
-  ctx.beginPath(); ctx.arc(x, y, r * 2.4 * s, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, h * 1.3 * s, 0, Math.PI * 2); ctx.fill();
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(s * sx, s);
-  ctx.drawImage(imgCoin, -r, -r, r * 2, r * 2);
+  ctx.scale(s * pulse, s * pulse);
+  ctx.drawImage(imgStar, -w / 2, -h / 2, w, h);
   ctx.restore();
-  // twinkling 4-point star glint at the coin's upper right
+  // twinkling 4-point star glint at the star's upper right
   const tw = 0.6 + 0.4 * Math.sin(S.time * 8 + e.z * 0.7);
-  const gs = r * 0.55 * s * tw;
+  const gs = h * 0.28 * s * tw;
   if (gs > 2) {
     ctx.save();
-    ctx.translate(x + r * 0.55 * s, y - r * 0.6 * s);
-    ctx.globalAlpha = 0.85;
+    ctx.translate(x + w * 0.28 * s, y - h * 0.3 * s);
+    ctx.globalAlpha = 0.9;
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.moveTo(0, -gs);
@@ -691,45 +805,121 @@ function drawCoin(e){
 function drawObstacle(e){
   const s = scaleAt(e.z);
   if (s < 0.1) return;
-  const img = obstImg(e.kind);
-  if (!imgReady(img)) return;
+  if (!imgReady(imgLow)) return;
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z);
-  // Wide obstacles spilling across the brown ground — the drawn size is the
-  // same size the collision check uses (see obstDims).
+  // The barrier is lane-wide now — the drawn size is the same size the
+  // collision check uses (see obstDims).
   const d = obstDims(e.kind);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
-  ctx.drawImage(img, -d.w / 2, -d.h, d.w, d.h);
+  ctx.drawImage(imgLow, -d.w / 2, -d.h, d.w, d.h);
+  ctx.restore();
+}
+function drawRope(e){
+  const s = scaleAt(e.z);
+  if (s < 0.08) return;
+  const x = laneX(e.lane, e.z);
+  const y = groundY(e.z);
+  // the gap in the path: a dark hole in the dirt, lane-wide
+  ctx.fillStyle = 'rgba(38, 20, 6, 0.9)';
+  ctx.beginPath();
+  ctx.ellipse(x, y, 62 * U * s, 13 * U * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(20, 10, 2, 0.9)';
+  ctx.beginPath();
+  ctx.ellipse(x, y, 44 * U * s, 8 * U * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // the rope: hangs from above the screen down to the gap, swaying gently
+  const sway = Math.sin(S.time * 2 + e.z * 0.3) * 7 * U * s;
+  const topY = Math.max(-10, y - 320 * U * s);
+  const botY = y - 46 * U * s;
+  ctx.strokeStyle = '#8a6b3f';
+  ctx.lineWidth = Math.max(2, 5 * U * s);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x + sway, topY);
+  ctx.lineTo(x, botY);
+  ctx.stroke();
+  // grip knot at the bottom of the rope
+  ctx.fillStyle = '#6b4e2a';
+  ctx.beginPath();
+  ctx.arc(x, botY, Math.max(2, 7 * U * s), 0, Math.PI * 2);
+  ctx.fill();
+}
+function drawWolfChase(){
+  // The wolf runs right behind bé cá — slightly higher on screen
+  // (further from the camera) and smaller, offset to her left.
+  // Fades out over the last second of the 7 s chase.
+  const a = wolfAlpha();
+  if (a <= 0 || !imgReady(imgWolfRun)) return;
+  const h = CHAR_H * 0.72;
+  const w = h * (imgWolfRun.naturalWidth / imgWolfRun.naturalHeight);
+  const bob = Math.sin(S.time * (9 + S.speed * 0.05)) * 4 * U;
+  const wx = S.charX - 82 * U;
+  const feetY = PLAYER_Y - 30 * U + bob;
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.translate(wx, feetY);
+  ctx.rotate(0.06);
+  ctx.drawImage(imgWolfRun, -w / 2, -h, w, h);
+  ctx.restore();
+}
+function drawSwing(){
+  // Bé cá hanging from the rope, swinging forward over the gap.
+  // Pendulum: back at grab, forward at landing.
+  const p = Math.min(1, S.swingT / SWING_DUR);
+  const ang = -0.55 * Math.cos(p * Math.PI);
+  const ax = S.charX, ay = PLAYER_Y - 300 * U;
+  const L = 175 * U;
+  const hx = ax + Math.sin(ang) * L, hy = ay + Math.cos(ang) * L;
+  ctx.save();
+  ctx.strokeStyle = '#8a6b3f';
+  ctx.lineWidth = 5 * U;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(hx, hy);
+  ctx.stroke();
+  ctx.restore();
+  // the gap passing underneath while she swings
+  ctx.fillStyle = 'rgba(38, 20, 6, 0.9)';
+  ctx.beginPath();
+  ctx.ellipse(S.charX, PLAYER_Y + 4 * U, 62 * U, 13 * U, 0, 0, Math.PI * 2);
+  ctx.fill();
+  const img = runFrames[1];
+  if (!imgReady(img)) return;
+  const h = CHAR_H;
+  const w = h * (img.naturalWidth / img.naturalHeight);
+  ctx.save();
+  ctx.translate(hx, hy);
+  ctx.rotate(ang);
+  ctx.drawImage(img, -w / 2, 0, w, h); // head at the hands, body dangling
   ctx.restore();
 }
 function drawCharacter(){
-  const sliding = isSliding();
-  // Sliding: a REAL slide-pose sprite (low, stretched, feet first) — never
-  // the run frame squashed flat. Running/jumping: the 4-frame run cycle
-  // so the legs visibly pump.
-  const img = sliding ? imgSlide : runFrames[runFrameIndex()];
+  if (isSwinging()) { drawSwing(); return; }
+  const img = runFrames[runFrameIndex()];
   if (!imgReady(img)) return;
   const norm = speedNorm();
   const bobFreq = 9 + S.speed * 0.05;      // bob quickens with speed
   const bobAmp = (4 + norm * 3) * U;       // bigger bob — energetic pumping
-  const bob = sliding ? 0 : Math.sin(S.time * bobFreq) * bobAmp;
-  const pH = jumpHeight() + climbHeight(); // jump + staircase climb
-  const h = sliding ? SLIDE_H_BASE * U : CHAR_H;
+  const bob = Math.sin(S.time * bobFreq) * bobAmp;
+  const pH = jumpHeight();
+  const h = CHAR_H;
   const w = h * (img.naturalWidth / img.naturalHeight);
   // forward lunge: once per stride cycle the body surges toward the
   // horizon, so she reads as running FORWARD, not jogging in place
   const cyclePhase = (S.runTime * runFps() / 4) % 1;
-  const lunge = sliding ? 0 : Math.max(0, Math.sin(cyclePhase * Math.PI * 2)) * 5 * U;
+  const lunge = Math.max(0, Math.sin(cyclePhase * Math.PI * 2)) * 5 * U;
   const feetY = PLAYER_Y - pH + bob - lunge;
-  // leans forward more as the race builds — a real race, not a jog.
-  // The slide pose already leans back on its own, so no extra tilt.
+  // leans forward more as the race builds — a real race, not a jog
   const lean = 0.08 + norm * 0.14;
-  const tilt = sliding ? 0 : Math.sin(S.time * bobFreq) * 0.05 + lean;
-  // soft shadow (wider while sliding — the pose is stretched out)
+  const tilt = Math.sin(S.time * bobFreq) * 0.05 + lean;
+  // soft shadow
   const shScale = Math.max(0.35, 1 - pH / (220 * U));
-  const shW = (sliding ? 50 : 34) * U * shScale;
+  const shW = 34 * U * shScale;
   ctx.fillStyle = 'rgba(60,30,0,.28)';
   ctx.beginPath();
   ctx.ellipse(S.charX, PLAYER_Y + 6 * U, shW, 8 * U * shScale, 0, 0, Math.PI*2);
@@ -773,21 +963,151 @@ function drawSpeedLines(){
   }
   ctx.restore();
 }
+/* ---------- turn arrow ---------- */
+function drawTurnArrow(){
+  if (!S.turn.active) return;
+  const dir = S.turn.dir;
+  const arrow = dir < 0 ? '◀' : '▶';
+  const vi = dir < 0 ? 'RẼ TRÁI!' : 'RẼ PHẢI!';
+  const en = dir < 0 ? 'Turn left!' : 'Turn right!';
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '900 ' + Math.round(30 * U) + 'px "Comic Sans MS", sans-serif';
+  ctx.shadowColor = 'rgba(0,40,90,.6)';
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = '#ffe082';
+  ctx.fillText(arrow + '  ' + vi + '  ' + arrow, viewCX(), 96 * U);
+  ctx.font = '700 ' + Math.round(15 * U) + 'px "Comic Sans MS", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(en, viewCX(), 122 * U);
+  ctx.restore();
+}
+/* ---------- intro cutscene ---------- */
+function drawCaption(vi, en, y){
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const w = Math.min(VW * 0.86, 340 * U);
+  const h = 62 * U;
+  ctx.fillStyle = 'rgba(10, 60, 120, 0.72)';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(viewCX() - w / 2, y - h / 2, w, h, 14 * U);
+  else ctx.rect(viewCX() - w / 2, y - h / 2, w, h);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '800 ' + Math.round(19 * U) + 'px "Comic Sans MS", sans-serif';
+  ctx.fillText(vi, viewCX(), y - 12 * U);
+  ctx.globalAlpha = 0.85;
+  ctx.font = '700 ' + Math.round(13 * U) + 'px "Comic Sans MS", sans-serif';
+  ctx.fillText(en, viewCX(), y + 13 * U);
+  ctx.restore();
+}
+function drawCutscene(){
+  const t = S.cutT;
+  const wolfX = VW * 0.30;
+  const ease = p => p * p * (3 - 2 * p); // smoothstep
+  // --- the sleeping wolf (phases A + B) ---
+  if (t < CUT_B) {
+    if (imgReady(imgWolfSit)) {
+      const h = 175 * U;
+      const w = h * (imgWolfSit.naturalWidth / imgWolfSit.naturalHeight);
+      ctx.drawImage(imgWolfSit, wolfX - w / 2, PLAYER_Y - h, w, h);
+    }
+    // "Zzz" floating above the wolf while it sleeps
+    if (t < CUT_A) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.font = '900 ' + Math.round(26 * U) + 'px "Comic Sans MS", sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = 0.7 + 0.3 * Math.sin(t * 4);
+      ctx.fillText('Z z z', wolfX, PLAYER_Y - 200 * U);
+      ctx.restore();
+    }
+  }
+  // --- bé cá ---
+  const becaH = CHAR_H;
+  const becaW = becaH * (spriteFront.naturalWidth / spriteFront.naturalHeight);
+  if (t < CUT_A) {
+    // (a) bé cá approaches the sleeping wolf from the right
+    const p = ease(Math.min(1, t / CUT_A));
+    const bx = VW * 0.92 + (VW * 0.52 - VW * 0.92) * p;
+    if (imgReady(spriteFront)) ctx.drawImage(spriteFront, bx - becaW / 2, PLAYER_Y - becaH, becaW, becaH);
+    drawCaption('Sói đang ngủ say…', 'The wolf is fast asleep…', 110 * U);
+  } else if (t < CUT_B) {
+    // (b) she steps on the tail — "!" / "Á!"
+    const bx = VW * 0.52;
+    if (imgReady(spriteFront)) ctx.drawImage(spriteFront, bx - becaW / 2, PLAYER_Y - becaH, becaW, becaH);
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = '900 ' + Math.round(54 * U) + 'px "Comic Sans MS", sans-serif';
+    ctx.fillStyle = '#ff5252';
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 8;
+    ctx.fillText('!', wolfX + 30 * U, PLAYER_Y - 210 * U);
+    ctx.fillStyle = '#ffe082';
+    ctx.font = '900 ' + Math.round(34 * U) + 'px "Comic Sans MS", sans-serif';
+    ctx.fillText('Á!', bx + 60 * U, PLAYER_Y - 190 * U);
+    ctx.restore();
+    drawCaption('Bé cá dẫm phải đuôi sói!', 'Bé cá stepped on the wolf’s tail!', 110 * U);
+  } else if (t < CUT_C) {
+    // (c) the wolf jumps up angry, bé cá runs off to the right
+    const p = ease(Math.min(1, (t - CUT_B) / (CUT_C - CUT_B)));
+    if (imgReady(imgWolfRun)) {
+      const h = 200 * U;
+      const w = h * (imgWolfRun.naturalWidth / imgWolfRun.naturalHeight);
+      const bounce = -18 * U * Math.sin(p * Math.PI);
+      ctx.drawImage(imgWolfRun, wolfX - w / 2, PLAYER_Y - h + bounce, w, h);
+    }
+    const img = runFrames[Math.floor(t * 12) % 4];
+    const rw = becaH * (img.naturalWidth / img.naturalHeight);
+    const bx = VW * 0.52 + (VW * 0.95 - VW * 0.52) * p;
+    if (imgReady(img)) ctx.drawImage(img, bx - rw / 2, PLAYER_Y - becaH, rw, becaH);
+    drawCaption('Sói tỉnh dậy rồi — giận lắm!', 'The wolf woke up — ANGRY!', 110 * U);
+  } else {
+    // (d) the chase is on — both running, then the run begins
+    const img = runFrames[Math.floor(t * 14) % 4];
+    const rw = becaH * (img.naturalWidth / img.naturalHeight);
+    if (imgReady(img)) ctx.drawImage(img, VW * 0.52 - rw / 2, PLAYER_Y - becaH, rw, becaH);
+    if (imgReady(imgWolfRun)) {
+      const h = 150 * U;
+      const w = h * (imgWolfRun.naturalWidth / imgWolfRun.naturalHeight);
+      const bob = Math.sin(t * 14) * 4 * U;
+      ctx.drawImage(imgWolfRun, VW * 0.52 - 170 * U - w / 2, PLAYER_Y - h + bob, w, h);
+    }
+    drawCaption('CHẠY ĐI!', 'RUN!', 110 * U);
+  }
+  // skip hint
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = '700 ' + Math.round(14 * U) + 'px "Comic Sans MS", sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  ctx.shadowColor = 'rgba(0,40,90,.6)'; ctx.shadowBlur = 4;
+  ctx.fillText('Chạm để bỏ qua · Tap to skip', viewCX(), VH - 30 * U);
+  ctx.restore();
+}
 function draw(){
   const dpr = canvas._dpr || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, VW, VH);
   drawBackground();
+  if (S.mode === 'cutscene') {
+    drawCutscene();
+    return;
+  }
   drawStreaks(); // the rushing ground — the forward-motion cue
   // entities sorted far -> near
   const ents = S.entities.slice().sort((a,b) => b.z - a.z);
   for (const e of ents) {
     if (e.taken) continue;
-    if (e.kind === 'coin') drawCoin(e); else drawObstacle(e);
+    if (e.kind === 'star') drawStar(e);
+    else if (e.kind === 'rope') drawRope(e);
+    else drawObstacle(e);
   }
   drawCharacter();
+  if (S.mode === 'playing') drawWolfChase();
+  drawTurnArrow();
   // gentle vignette (soft, no flash)
-  const vg = ctx.createRadialGradient(CENTER_X, VH/2, VH*0.45, CENTER_X, VH/2, VH*0.85);
+  const vg = ctx.createRadialGradient(viewCX(), VH/2, VH*0.45, viewCX(), VH/2, VH*0.85);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(10,50,100,.18)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
   drawSpeedLines();
@@ -808,28 +1128,35 @@ requestAnimationFrame(loop);
 window.__becaRun = {
   S,
   start: startGame,
+  skipCutscene,
   over: gameOver,
-  moveLeft, moveRight, jump: doJump, slide: doSlide,
-  jumpHeight, isSliding,
+  moveLeft, moveRight, jump: doJump,
+  jumpHeight, isSwinging, jumpApex,
   spawnPattern,
-  laneX, groundY, scaleAt,
+  laneX, groundY, scaleAt, viewCX,
   runFrame: runFrameIndex,
   speedNorm, speedLines: speedLineState,
-  obstDims, lanePassable, rowIsFair, lowBarH, overGap, rampH, climbHeight,
+  obstDims, lanePassable, rowIsFair, rowFreeLane, lowBarH, starH,
+  wolfVisible, wolfAlpha,
   streaks(){ return S.streaks; },
   layout(){ return { VW, VH, U, CENTER_X, HORIZON_Y, PLAYER_Y, LANE_HALF,
-                     CHAR_H, LOW_BAR_H: lowBarH(), OVER_GAP: overGap(),
-                     RAMP_H: rampH(), RAMP_W: obstDims('ramp').w,
-                     OVER_W: obstDims('over').w, COIN_R: COIN_R_BASE * U,
-                     SPEED_BASE, SPEED_MAX, SLIDE_H: SLIDE_H_BASE * U,
-                     PLAYER_HW, PLAYER_HW_SLIDE }; },
+                     CHAR_H, CHAR_W: CHAR_H * (runFrames[0].naturalWidth / runFrames[0].naturalHeight),
+                     LOW_BAR_H: lowBarH(), LOW_BAR_W: obstDims('low').w,
+                     STAR_H: starH(), STAR_W: obstDims('star').w,
+                     STAR_PICKUP: STAR_PICKUP_BASE * U,
+                     JUMP_APEX: jumpApex(), OLD_JUMP_APEX: OLD_JUMP_APEX * U,
+                     LANE_LERP, BG_HORIZON_FRAC, CUT_DUR, WOLF_CHASE_T,
+                     SPEED_BASE, SPEED_MAX, PLAYER_HW,
+                     TURN_SHIFT }; },
   resize,
   assets(){
     return {
-      bg: imgReady(bgImg), coin: imgReady(imgCoin),
-      low: imgReady(imgLow), over: imgReady(imgOver), ramp: imgReady(imgRamp),
+      bg: imgReady(bgImg), star: imgReady(imgStar),
+      low: imgReady(imgLow),
+      wolfRun: imgReady(imgWolfRun), wolfSit: imgReady(imgWolfSit),
+      cry: imgReady(imgCry),
       run: runFrames.map(imgReady),
-      slide: imgReady(imgSlide),
+      front: imgReady(spriteFront),
     };
   },
   setSpeed(v){ S.speed = v; },
