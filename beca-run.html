@@ -160,29 +160,39 @@
 <script>
 "use strict";
 /* ============================================================
-   BÉ CÁ CHẠY — v9: the beach rework
+   BÉ CÁ CHẠY — v10: the wolf runs DIRECTLY behind her
    Subway Surfers-style endless runner, 3 lanes, camera behind
    the character, low-poly beach ground filling the whole screen
    edge-to-edge. A real race, not a jog.
    - Intro cutscene: bé cá steps on the sleeping wolf's tail,
      the wolf wakes up angry — then the chase is on.
    - Wolf chase: a real 4-frame run cycle (wolf-run1..4.png, rear
-     view, all 4 legs articulating) runs CLOSE behind bé cá for
-     the first ~7 s of every run, kicking up smoke/dust from its
-     paws, then gives up and fades away. Nearly touching her back.
+     view, all 4 legs articulating) runs DIRECTLY BEHIND bé cá —
+     same x centre (0 offset), same lane, a single vertical column
+     (hàng dọc) along the running direction: bé cá in front, a
+     ~1 cm gap from her back/tail, then the wolf right behind her.
+     Never offset left/right, never beside her. It kicks up
+     smoke/dust from its paws for the first ~7 s of every run,
+     then gives up and fades away.
    - Game over: the wolf CATCHES her — crying bé cá on screen.
    - ONLY obstacle: the low 3D box-beam barrier (1.2 lanes wide).
      Dodge by switching lanes OR jump over it. No signs, no ramps,
      no sliding — those mechanics are gone entirely.
-   - Gold stars, now about HALF bé cá's height (95 local units),
-     plain modest gold — no glow, no glint, no pulse.
-   - Turns: the road bends left/right — horizon and lanes shift,
-     with a big turn arrow. Rope swings: grab a rope over a gap
-     and swing across (automatic, always succeeds).
+   - Gold stars: about HALF bé cá's height (95 local units),
+     plain modest gold — no glow, no glint, no pulse. Stars come
+     as ONE neat line of exactly 4 in a single lane, and only in
+     ~40% of patterns — not too many.
+   - Turns: a big turn arrow + caption only — the MAP is stable
+     and never moves. No ground streaks, no background shift, no
+     running path: the whole ground is uniform sand, because
+     everything around is sand. The sense of movement comes only
+     from the obstacles and stars approaching and bé cá's run.
+     Rope swings: grab a rope over a gap and swing across
+     (automatic, always succeeds).
    - Higher jump (~1.34x v8 apex), faster lane switching, new
-     low-poly beach bg (horizon re-measured from the new art:
-     sea meets sand at 0.45 — the ground is SAND now).
-   Ground streaks rush past so she reads as running FORWARD.
+     uniform-sand low-poly beach bg (horizon re-measured from the
+     new art: sea meets sand at 0.45 — the ground is SAND now,
+     with no path strip at all).
    No screen shake anywhere (gentle motion only).
    ============================================================ */
 const canvas = document.getElementById('game');
@@ -210,15 +220,15 @@ const LOW_W_LANES_MAX = 1.3;  // (kept in the fairness cap, see spawnPattern)
    from v8's 100 (for a 185-unit star) to 50. */
 const STAR_H_BASE = 95;       // star height, local units — ~half character height
 const STAR_PICKUP_BASE = 50;  // star pickup window, local units (was 100 for the big star)
-const STREAK_N = 14;          // ground streaks rushing past (forward-motion cue)
 const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units
-/* BG_HORIZON_FRAC re-measured from the NEW bg-3d.png (800x1600,
-   low-poly beach) — measured with PIL across 11 columns: the
-   turquoise sea ends and the sand begins at y≈720/1600 = 0.45
-   on almost every column (median 0.453; a central sandbar reaches
-   up to 0.31, one column 0.51). 0.45 puts the horizon on SAND
-   across the whole width, so distant objects sit on the beach,
-   never on the sea. The old 0.39 belonged to the old forest art. */
+/* BG_HORIZON_FRAC re-measured from the NEW v10 bg-3d.png (800x1600,
+   low-poly beach, uniform sand, no path strip) — measured with PIL
+   across 11 columns: the turquoise sea ends and the sand begins at
+   y≈720/1600 = 0.45 on almost every column (median 0.449). 0.45 puts
+   the horizon on SAND across the whole width, so distant objects sit
+   on the beach, never on the sea. (The right columns read 0.31 where
+   a sandy beach strip meets the water at the horizon — the median
+   0.45 is the right value.) The old 0.39 belonged to the old forest art. */
 const BG_HORIZON_FRAC = 0.45;
 /* Jump: v8 apex was 145.8 local units (V=661, G=1500). 1.34x apex =
    ~195 local units, so V = sqrt(2*G*195) ≈ 765 with G unchanged —
@@ -228,15 +238,19 @@ const JUMP_V_BASE = 765;
 const JUMP_G_BASE = 1500;
 const OLD_JUMP_APEX = 145.8;  // v8 apex, local units — for the test hook
 /* Wolf chase geometry (local units; U scales them to the screen).
-   The wolf runs CLOSE behind bé cá: its paws sit only
-   WOLF_FEET_LIFT above her feet line on the ground plane, and its
-   nose (centre x) sits WOLF_X_OFF to her left — just 8 local units
-   from her back edge, nearly touching. It stays slightly higher
-   (further away in pseudo-3D) and smaller than her, as in v8, but
-   the gap is now tiny instead of a wide berth. */
+   The wolf runs DIRECTLY BEHIND bé cá — one vertical column
+   (hàng dọc) along the running direction, NEVER a horizontal row
+   beside her: its horizontal centre is EXACTLY bé cá's centre
+   (WOLF_X_OFF = 0, same x, same lane), positioned just behind her
+   on screen (slightly higher / further back on the ground plane,
+   a little smaller). The gap is ~1 cm on screen (WOLF_FEET_LIFT
+   = 30 local units), measured from bé cá's BACK and TAIL to the
+   wolf's nose — the wolf's nose sits 1 cm behind the tip of her
+   tail/back. It is drawn BEFORE her, so she occludes its middle:
+   it is behind her. */
 const WOLF_W = 140;           // wolf display width, local units (fixed for all 4 frames)
-const WOLF_FEET_LIFT = 30;    // paws above bé cá's feet line = the chase gap (~1 cm on iPhone)
-const WOLF_X_OFF = -70;       // wolf centre x relative to bé cá (left, peeking from behind her)
+const WOLF_FEET_LIFT = 30;    // the chase gap, ground plane (~1 cm on iPhone), from her back/tail to its nose
+const WOLF_X_OFF = 0;         // wolf centre x relative to bé cá — EXACTLY 0: directly behind her, same x
 /* Wolf smoke: dust puffs kicked up by the paws while chasing. */
 const SMOKE_RATE = 40;        // puffs spawned per second during the chase
 const SMOKE_MAX = 90;         // particle cap
@@ -341,7 +355,6 @@ const S = {
   charX: CENTER_X,        // smoothed screen x
   jumpT: -1,              // jump timer (<0 = not jumping)
   entities: [],           // {kind:'low'|'star'|'rope', lane, z, h, taken, passed}
-  streaks: [],            // ground streaks rushing past {x (lane units), z, dark}
   spawnAcc: 0,            // distance since last pattern
   nextGap: 58,
   patterns: 0,            // patterns spawned (test hook)
@@ -378,9 +391,11 @@ function wolfFrameIndex(){
   if (S.mode !== 'playing') return 0;
   return Math.floor(S.runTime * runFps()) % 4;
 }
-/* Where the wolf is drawn during the chase: close behind bé cá,
-   slightly higher (further away) and offset left so it peeks out
-   from behind her — drawn BEFORE her, so she occludes its middle. */
+/* Where the wolf is drawn during the chase: DIRECTLY behind bé cá,
+   same horizontal centre (WOLF_X_OFF = 0), slightly higher
+   (further away) on the ground plane — drawn BEFORE her, so she
+   occludes its middle. One vertical column: her, a ~1 cm gap from
+   her back/tail, then the wolf. */
 function wolfGeom(){
   const bob = Math.sin(S.time * (9 + S.speed * 0.05)) * 4 * U;
   return {
@@ -389,20 +404,22 @@ function wolfGeom(){
     w: WOLF_W * U,
   };
 }
-/* The chase gap, measured two ways (local units and screen px):
-   - ground: paws-to-feet on the ground plane (WOLF_FEET_LIFT)
-   - nose: wolf's nose (centre x) to bé cá's back edge, horizontally */
+/* The chase gap, measured two ways (local units and screen px).
+   The wolf is DIRECTLY behind bé cá (same x, same lane), so the
+   gap is the ground-plane distance from bé cá's BACK and TAIL to
+   the wolf's nose — WOLF_FEET_LIFT (30 local ≈ 1 cm on iPhone).
+   There is no sideways offset any more: the nose sits on the same
+   vertical line as her back, 1 cm behind the tip of her tail. */
 function wolfGap(){
-  const becaHalfW = CHAR_H_BASE * 0.67 / 2; // bé cá half-width, LOCAL units (603x900 frame)
-  const noseLocal = Math.abs(WOLF_X_OFF) - becaHalfW;
   return {
     groundLocal: WOLF_FEET_LIFT, groundPx: WOLF_FEET_LIFT * U,
-    noseLocal, nosePx: noseLocal * U,
+    noseLocal: WOLF_FEET_LIFT, nosePx: WOLF_FEET_LIFT * U,
   };
 }
-/* The view centre: during a bend it eases sideways, and the lanes,
-   the streaks and the background shift with it — the road visibly
-   bends left/right. Straight sections: viewCX === CENTER_X. */
+/* The view centre: during a bend it eases sideways, and the lanes
+   (obstacles, stars, rope, bé cá) shift with it — the turn reads
+   through the arrow, the caption and the obstacles moving, while
+   the BACKGROUND stays put. Straight sections: viewCX === CENTER_X. */
 function viewCX(){ return CENTER_X + S.turnX; }
 function wolfVisible(){ return S.mode === 'playing' && S.runTime < WOLF_CHASE_T; }
 function wolfAlpha(){
@@ -532,18 +549,15 @@ wrap.addEventListener('click', e => {
   if (S.mode === 'cutscene') skipCutscene();
 });
 
-/* Ground streaks: thin sand dashes on the beach that rush past
-   at world speed — the main "running FORWARD" cue. */
-function newStreak(anyZ){
-  return { x: -2 + Math.random() * 4, z: anyZ ? Math.random() * 260 : 230 + Math.random() * 60,
-           dark: Math.random() < 0.5 };
-}
-
 /* ---------- spawning ---------- */
 function spawnPattern(){
   // Only barriers (1–2 per row, never full-width) and gold stars.
-  // Every row leaves a free lane by construction; the fairness safety
-  // net below still guards against any impossible row.
+  // Stars come as ONE neat line of exactly 4 in a single lane, and
+  // only in ~40% of patterns — not too many. No star arcs, no
+  // scattered stars, no high stars: the line is on the ground, so
+  // running through its lane collects all 4. Every row leaves a
+  // free lane by construction; the fairness safety net below still
+  // guards against any impossible row.
   S.patterns++;
   const r = Math.random();
   const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
@@ -552,42 +566,29 @@ function spawnPattern(){
     const e = { kind:'low', lane, z: z === undefined ? SPAWN_Z : z };
     S.entities.push(e); row.push(e); return e;
   };
-  const addStar = (lane, z, h) => S.entities.push({ kind:'star', lane, z, h: h || 0 });
-  const addStarArc = (lane, z0) => {
-    addStar(lane, z0, 0);
-    addStar(lane, z0 + 12, 110); // high star — jump for it (apex ~195)
-    addStar(lane, z0 + 24, 0);
+  const addStar = (lane, z) => S.entities.push({ kind:'star', lane, z, h: 0 });
+  const addStarLine = (lane) => {
+    for (let i = 0; i < 4; i++) addStar(lane, SPAWN_Z + i * 12);
   };
-  if (r < 0.22) {
-    // star line on one lane
-    const L = lanes[0];
-    for (let i = 0; i < 5; i++) addStar(L, SPAWN_Z + i*12, 0);
-  } else if (r < 0.38) {
-    // one barrier + stars on another lane
+  if (r < 0.30) {
+    // one barrier only, no stars
     addBarrier(lanes[0]);
-    for (let i = 0; i < 4; i++) addStar(lanes[1], SPAWN_Z + i*12, 0);
-  } else if (r < 0.52) {
-    // two barriers + stars on the free lane
+  } else if (r < 0.60) {
+    // two barriers only, no stars
     addBarrier(lanes[0]);
     addBarrier(lanes[1]);
-    for (let i = 0; i < 4; i++) addStar(lanes[2], SPAWN_Z + i*12, 0);
-  } else if (r < 0.64) {
-    // star arc + a barrier on another lane
-    addStarArc(lanes[0], SPAWN_Z);
-    addBarrier(lanes[1], SPAWN_Z + 6);
-  } else if (r < 0.76) {
-    // one barrier + a star arc on another lane
+  } else if (r < 0.72) {
+    // a line of 4 stars on one lane, no barrier
+    addStarLine(lanes[0]);
+  } else if (r < 0.86) {
+    // one barrier + a line of 4 stars on another lane
     addBarrier(lanes[0]);
-    addStarArc(lanes[1], SPAWN_Z);
-  } else if (r < 0.88) {
-    // two barriers + a star arc on the free lane
-    addBarrier(lanes[0]);
-    addBarrier(lanes[1]);
-    addStarArc(lanes[2], SPAWN_Z);
+    addStarLine(lanes[1]);
   } else {
-    // star arc on its own
-    addStarArc(lanes[0], SPAWN_Z);
-    for (let i = 0; i < 2; i++) addStar(lanes[1], SPAWN_Z + i*12, 0);
+    // two barriers + a line of 4 stars on the free lane
+    addBarrier(lanes[0]);
+    addBarrier(lanes[1]);
+    addStarLine(lanes[2]);
   }
   // Fairness safety net: never ship a row with no way through.
   // If a row is impossible, drop its widest barrier and re-check.
@@ -615,8 +616,6 @@ function startGame(){
   S.lane = 0; S.charX = CENTER_X; S.turnX = 0;
   S.jumpT = -1; S.swingT = -1;
   S.entities = [];
-  S.streaks = [];
-  for (let i = 0; i < STREAK_N; i++) S.streaks.push(newStreak(true));
   S.spawnAcc = 0; S.nextGap = 95;  // first pattern after a clear opening stretch
   S.patterns = 0;
   S.over = false; S.newBest = false;
@@ -682,10 +681,11 @@ function update(dt){
   S.score = Math.floor(S.distance / 10) + S.stars * 10;
 
   /* --- turns: every ~700–1300 units the road bends left or right.
-     The view centre eases sideways (the horizon and lanes shift with
-     it) and a big arrow shows the direction. Simplified bend: the
-     photo background itself does not curve — the vanishing point,
-     lanes and streaks all shift, which reads as a bend. --- */
+     The turn is shown ONLY by the big arrow + caption and by the
+     lanes (obstacles, stars, rope, bé cá) easing sideways — the
+     MAP itself never moves: the background stays put, there are no
+     ground streaks and no running path, because everything around
+     is sand. --- */
   if (!S.turn.active && S.distance >= S.turn.nextAt) {
     S.turn.active = true;
     S.turn.t = 0;
@@ -770,11 +770,6 @@ function update(dt){
   const dz = S.speed * dt;
   for (const e of S.entities) e.z -= dz;
   S.entities = S.entities.filter(e => e.z > -30);
-  // ground streaks rush past at world speed, then recycle far ahead
-  for (const st of S.streaks) {
-    st.z -= dz;
-    if (st.z < -8) { const ns = newStreak(false); st.x = ns.x; st.z = ns.z; st.dark = ns.dark; }
-  }
 
   // collisions / pickups in the hit zone
   const pH = jumpHeight();
@@ -783,8 +778,9 @@ function update(dt){
     if (e.taken || e.passed) continue;
     if (Math.abs(e.z) > HIT_Z) continue;
     if (e.kind === 'star') {
-      // stars are collected by running into them (ground) or by
-      // jumping (high stars) — mid-swing counts too
+      // stars are collected by running into them on the ground —
+      // mid-swing counts too. All stars are ground stars in a line
+      // of 4, so staying in their lane on the ground collects them.
       if (e.lane !== S.lane) continue;
       const starHgt = (e.h || 0) * U;
       if (Math.abs(pH - starHgt) < STAR_PICKUP_BASE * U) { e.taken = true; S.stars++; updateHUD(); }
@@ -815,16 +811,18 @@ function update(dt){
 
 /* ---------- drawing ---------- */
 function drawBackground(){
-  // Low-poly beach (no rails — bé cá runs straight on the sand),
-  // drawn cover-style to fill the whole screen edge-to-edge, with the
-  // sea/sand shoreline aligned to HORIZON_Y. During a bend the whole
-  // background shifts sideways a little with the view centre.
+  // Low-poly beach (no rails, no path — bé cá runs straight on
+  // uniform sand), drawn cover-style to fill the whole screen
+  // edge-to-edge, with the sea/sand shoreline aligned to
+  // HORIZON_Y. The background is FIXED: it never shifts, pans or
+  // follows the character — not even during a turn. The map is
+  // stable; only the obstacles, stars and bé cá move.
   if (imgReady(bgImg)) {
     const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight; // 800x1600
     const horizonInImg = ih * BG_HORIZON_FRAC; // sea meets sand here
     const s = Math.max(VW / iw, VH / ih, (VH - HORIZON_Y) / (ih - horizonInImg));
     const dw = iw * s, dh = ih * s;
-    const dx = (VW - dw) / 2 + S.turnX * 0.4;
+    const dx = (VW - dw) / 2;
     const dy = HORIZON_Y - horizonInImg * s;
     ctx.drawImage(bgImg, dx, dy, dw, dh);
   } else {
@@ -832,38 +830,14 @@ function drawBackground(){
     ctx.fillRect(0, 0, VW, VH);
   }
 }
-/* Ground streaks — thin sand dashes rushing past on the beach.
-   This is the main "running FORWARD" cue: the ground itself moves fast
-   under bé cá's feet, so she cannot read as jogging in place. */
-function drawStreaks(){
-  if (S.mode !== 'playing') return;
-  ctx.save();
-  ctx.lineCap = 'round';
-  for (const st of S.streaks) {
-    const s = scaleAt(st.z);
-    if (s < 0.08) continue;
-    // lateral position converges toward the vanishing point with distance,
-    // exactly like the ground does
-    const x = viewCX() + st.x * LANE_HALF * s;
-    const y = groundY(st.z);
-    const len = 30 * U * s;
-    ctx.strokeStyle = st.dark ? 'rgba(190, 150, 90, 0.5)' : 'rgba(255, 232, 180, 0.55)';
-    ctx.lineWidth = Math.max(1, 3.5 * U * s);
-    ctx.beginPath();
-    ctx.moveTo(x - len / 2, y);
-    ctx.lineTo(x + len / 2, y);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
 function drawStar(e){
   // A simple modest gold star — NO glow, NO glint, NO pulse. The art
   // itself carries a soft shine; the code adds nothing on top.
   if (!imgReady(imgStar)) return;
   const s = scaleAt(e.z);
   const x = laneX(e.lane, e.z);
-  // centre sits half a star above the ground (+ arc height): the star's
-  // bottom touches the sand for ground stars
+  // centre sits half a star above the ground: the star's bottom
+  // touches the sand
   const h = STAR_H_BASE * U;
   const w = h * (imgStar.naturalWidth / imgStar.naturalHeight);
   const y = groundY(e.z) - (e.h || 0) * U * s - (h / 2) * s;
@@ -931,11 +905,11 @@ function drawWolfFrame(img, cx, feetY, w){
   return h;
 }
 function drawWolfChase(){
-  // The wolf runs CLOSE behind bé cá — slightly higher on screen
-  // (further from the camera) and offset left, its nose nearly
-  // touching her back, cycling all 4 run frames at the same rate
-  // as her stride. Fades out over the last second of the 7 s chase.
-  // Drawn BEFORE bé cá, so she occludes its middle: it is behind her.
+  // The wolf runs DIRECTLY BEHIND bé cá — same x centre, a ~1 cm
+  // gap from her back/tail, cycling all 4 run frames at the same
+  // rate as her stride. Fades out over the last second of the 7 s
+  // chase. Drawn BEFORE bé cá, so she occludes its middle: it is
+  // behind her, one vertical column, never beside her.
   const a = wolfAlpha();
   if (a <= 0) return;
   const img = wolfFrames[wolfFrameIndex()];
@@ -1155,12 +1129,15 @@ function drawCutscene(){
     if (imgReady(img)) ctx.drawImage(img, bx - rw / 2, PLAYER_Y - becaH, rw, becaH);
     drawCaption('Sói tỉnh dậy rồi — giận lắm!', 'The wolf woke up — ANGRY!', 110 * U);
   } else {
-    // (d) the chase is on — both running, then the run begins
+    // (d) the chase is on — the wolf DIRECTLY behind bé cá, one
+    // vertical column (same x, ~1 cm gap from her back/tail), both
+    // running, then the run begins. The wolf is drawn FIRST so
+    // bé cá is in front of it.
+    const bob = Math.sin(t * 14) * 4 * U;
+    drawWolfFrame(wolfFrames[Math.floor(t * 14) % 4], VW * 0.52, PLAYER_Y - WOLF_FEET_LIFT * U + bob, 132 * U);
     const img = runFrames[Math.floor(t * 14) % 4];
     const rw = becaH * (img.naturalWidth / img.naturalHeight);
     if (imgReady(img)) ctx.drawImage(img, VW * 0.52 - rw / 2, PLAYER_Y - becaH, rw, becaH);
-    const bob = Math.sin(t * 14) * 4 * U;
-    drawWolfFrame(wolfFrames[Math.floor(t * 14) % 4], VW * 0.52 - 170 * U, PLAYER_Y + bob, 132 * U);
     drawCaption('CHẠY ĐI!', 'RUN!', 110 * U);
   }
   // skip hint
@@ -1181,7 +1158,6 @@ function draw(){
     drawCutscene();
     return;
   }
-  drawStreaks(); // the rushing ground — the forward-motion cue
   // entities sorted far -> near
   const ents = S.entities.slice().sort((a,b) => b.z - a.z);
   for (const e of ents) {
@@ -1230,7 +1206,6 @@ window.__becaRun = {
   speedNorm, speedLines: speedLineState,
   obstDims, lanePassable, rowIsFair, rowFreeLane, lowBarH, starH,
   wolfVisible, wolfAlpha,
-  streaks(){ return S.streaks; },
   layout(){ return { VW, VH, U, CENTER_X, HORIZON_Y, PLAYER_Y, LANE_HALF,
                      CHAR_H, CHAR_W: CHAR_H * (runFrames[0].naturalWidth / runFrames[0].naturalHeight),
                      LOW_BAR_H: lowBarH(), LOW_BAR_W: obstDims('low').w,
