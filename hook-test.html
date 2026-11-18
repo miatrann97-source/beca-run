@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Hook test (temporary)</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#000}iframe{position:fixed;inset:0;width:100vw;height:100vh;border:0;display:block}</style>
+</head>
+<body>
+<iframe id="g" src="beca-run.html"></iframe>
+<script>
+var f=document.getElementById('g');
+function setup(){
+var W=f.contentWindow;
+if(!W.__becaRun){setTimeout(setup,300);return;}
+var H=W.__becaRun;
+H.start();
+H.skipCutscene();
+H.setSpeed(20);
+H.S.entities.push({kind:'train',lane:0,z:140,len:180,color:'red',ramp:true});
+setInterval(function(){try{H.setSpeed(20);}catch(e){}},10);
+}
+f.addEventListener('load',setup);
+</script>
+</body>
+</html>
