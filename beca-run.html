@@ -371,8 +371,9 @@ const WIN_GLASS = '#bfe3f2';  // window glass (pale blue)
 const SIDE_STRIPE = '#ffe9b0'; // cream stripe along each wall
 const ROOF_WALK = '#e9e4d8';  // pale walkway down the middle of the roof
 const ROOF_LINE = 'rgba(0,0,0,0.28)'; // roof panel cross-lines
-const CAP_BAND = 'rgba(0,0,0,0.20)';  // end-cap detail band
-const CAP_SEAM = 'rgba(0,0,0,0.15)';  // end-cap centre seam
+const CAP_BAND = 'rgba(255,255,255,0.45)';  // end-cap detail band (light — dark bands vanished under the game-over overlay)
+const CAP_BAND2 = 'rgba(255,255,255,0.28)'; // second end-cap band, higher up
+const CAP_SEAM = 'rgba(0,0,0,0.35)';  // end-cap centre seam
 const WIN_W_LOCAL = 20, WIN_H_LOCAL = 30, WIN_CY_LOCAL = 165; // window size + height on the wall
 const WIN_STEP_Z = 35, WIN_FIRST_OFF = 18, WIN_MIN_S = 0.12;  // window spacing along the wall
 const ROOF_LINE_STEP_Z = 40, ROOF_LINE_FIRST_OFF = 20, ROOF_LINE_MIN_S = 0.12;
@@ -1324,10 +1325,15 @@ function drawTrain(e){
   // flat slab. Skipped when the cap is too small to show it.
   const capDetail = (cx, topY, cw, ch) => {
     if (ch < 12) return;
+    // v14.1: two LIGHT bands + a strong seam — the v14 dark bands
+    // (0.20/0.15 black) were invisible on the dark cap colours and
+    // vanished entirely under the game-over screen's blue overlay.
+    ctx.fillStyle = CAP_BAND2;
+    ctx.fillRect(cx, topY + ch * 0.18, cw, Math.max(2, ch * 0.08));
     ctx.fillStyle = CAP_BAND;
-    ctx.fillRect(cx, topY + ch * 0.45, cw, Math.max(2, ch * 0.10));
+    ctx.fillRect(cx, topY + ch * 0.45, cw, Math.max(3, ch * 0.12));
     ctx.fillStyle = CAP_SEAM;
-    const sw = Math.max(2, 4 * U);
+    const sw = Math.max(3, 6 * U);
     ctx.fillRect(cx + cw / 2 - sw / 2, topY, sw, ch);
   };
   ctx.fillStyle = c.side;
