@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Bé Cá Chạy 3D — Endless Runner</title>
+<!-- Three.js r160 qua CDN (pin version). Bản test local dùng file vendor giống hệt (cùng URL này). -->
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js"}}</script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body {
+    background:#7ec8f7;
+    font-family:"Comic Sans MS","Chalkboard SE","Segoe UI",system-ui,sans-serif;
+    overflow:hidden;
+    user-select:none; -webkit-user-select:none;
+    touch-action:none;
+  }
+  #wrap {
+    position:fixed; inset:0;
+    width:100vw; height:100vh; height:100dvh;
+    overflow:hidden;
+    background:#8fd3f4;
+  }
+  #gl { display:block; width:100%; height:100%; }
+  /* gentle vignette (soft, no flash, NO screen shake anywhere) */
+  #vignette {
+    position:absolute; inset:0; z-index:2; pointer-events:none;
+    background:radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 55%, rgba(10,50,100,.16) 100%);
+  }
+  /* ---------- HUD ---------- */
+  #hud {
+    position:absolute; top:0; left:0; right:0;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    padding:12px 14px 0;
+    padding:max(12px, env(safe-area-inset-top)) 14px 0;
+    pointer-events:none; z-index:5;
+    color:#fff; text-shadow:0 2px 4px rgba(0,60,120,.55);
+  }
+  #hud .pill {
+    background:rgba(10,80,140,.45); border:2px solid rgba(255,255,255,.75);
+    border-radius:999px; padding:6px 14px; font-weight:800; font-size:17px;
+    backdrop-filter:blur(2px);
+  }
+  #hud .score { font-size:20px; }
+  #hud .score small { display:block; font-size:11px; opacity:.9; letter-spacing:1px; }
+  #hud .score #mult { color:#ffe082; font-size:18px; margin-left:6px; }
+  #hud .right { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+  #hud .coins { font-size:18px; }
+  #hud .coins img { height:20px; width:auto; vertical-align:-4px; margin-right:2px; }
+  #hud .best { font-size:14px; opacity:.95; }
+  /* ---------- overlays ---------- */
+  .overlay {
+    position:absolute; inset:0; z-index:10;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:20px;
+    background:linear-gradient(180deg, rgba(20,90,160,.25), rgba(10,60,120,.55));
+    color:#fff;
+  }
+  .overlay.hidden, #newBest.hidden, #hud.hidden, #caption.hidden, #loadErr.hidden { display:none; }
+  .title {
+    font-size:44px; font-weight:900; line-height:1.05;
+    color:#fff; text-shadow:0 4px 0 #1b6fb8, 0 8px 18px rgba(0,40,90,.5);
+    letter-spacing:1px;
+  }
+  .subtitle { font-size:16px; margin-top:6px; opacity:.95; text-shadow:0 2px 4px rgba(0,40,90,.6); }
+  #menu img.hero {
+    width:118px; height:auto; margin:10px 0 4px;
+    filter:drop-shadow(0 10px 14px rgba(0,40,90,.45));
+    animation:bob 1.6s ease-in-out infinite;
+  }
+  @keyframes bob { 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-10px);} }
+  .howto {
+    background:rgba(255,255,255,.92); color:#14568f; border-radius:16px;
+    padding:10px 14px; margin:10px 0; font-size:14px; line-height:1.6; font-weight:700;
+    box-shadow:0 6px 16px rgba(0,40,90,.3); max-width:340px;
+  }
+  .menufoot { display:flex; align-items:center; gap:10px; margin-top:10px; }
+  .menufoot .best { margin-top:0; }
+  .menufoot .btn.small { margin-top:0; }
+  .howto .k { background:#ffe082; border-radius:8px; padding:1px 8px; margin:0 2px; }
+  .btn {
+    pointer-events:auto; cursor:pointer; border:none; outline:none;
+    font-family:inherit; font-size:22px; font-weight:900; color:#fff;
+    background:linear-gradient(180deg,#ffb347,#ff8a00);
+    padding:14px 42px; border-radius:999px;
+    box-shadow:0 6px 0 #d96f00, 0 10px 20px rgba(0,40,90,.4);
+    text-shadow:0 2px 3px rgba(120,50,0,.4);
+    transition:transform .08s ease;
+  }
+  .btn:active { transform:translateY(4px); box-shadow:0 2px 0 #d96f00; }
+  .btn.small { font-size:15px; padding:8px 20px; box-shadow:0 3px 0 #d96f00; margin-top:10px; }
+  .best { margin-top:12px; font-size:15px; font-weight:800; text-shadow:0 2px 4px rgba(0,40,90,.6); }
+  .best b { color:#ffe082; }
+  /* game over: split panel (v15.1) — title + cry/wolf at the top, stats +
+     button at the bottom (margin-top:auto), so the train's rear face at
+     collision distance stays visible in the clear middle. */
+  #gameover { justify-content:flex-start;
+    background:linear-gradient(180deg, rgba(20,90,160,.10), rgba(10,60,120,.28)); }
+  #gameover .catch { display:flex; align-items:flex-end; gap:4px; margin:4px 0 2px; }
+  #gameover .catch img.cry {
+    height:132px; width:auto;
+    filter:drop-shadow(0 10px 14px rgba(0,40,90,.5));
+  }
+  #gameover .catch img.wolf {
+    height:90px; width:auto; margin-bottom:2px;
+    filter:drop-shadow(0 8px 12px rgba(0,40,90,.45));
+  }
+  #gameover .big { font-size:34px; font-weight:900; text-shadow:0 4px 0 #1b6fb8, 0 8px 18px rgba(0,40,90,.5); }
+  #gameover .stats {
+    background:rgba(255,255,255,.92); color:#14568f; border-radius:16px;
+    padding:12px 20px; margin:12px 0; font-size:18px; line-height:1.9; font-weight:800;
+    box-shadow:0 6px 16px rgba(0,40,90,.3); min-width:250px;
+  }
+  #gameover .stats { margin-top:auto; }
+  #gameover .stats b { color:#ff8a00; font-size:24px; }
+  #gameover .newbest { color:#ffe082; font-weight:900; font-size:18px; margin-top:4px; text-shadow:0 2px 6px rgba(0,40,90,.6); }
+  /* ---------- in-game hint + cutscene caption ---------- */
+  #hint {
+    position:absolute; left:0; right:0; bottom:18px; z-index:6;
+    bottom:max(18px, env(safe-area-inset-bottom));
+    text-align:center; color:#fff; font-size:14px; font-weight:700;
+    text-shadow:0 2px 4px rgba(0,40,90,.7); pointer-events:none;
+    transition:opacity .6s ease;
+  }
+  #hint.hidden { opacity:0; }
+  #caption {
+    position:absolute; left:0; right:0; top:12%; z-index:6;
+    display:flex; justify-content:center; pointer-events:none;
+  }
+  #caption .box {
+    background:rgba(10,60,120,.72); color:#fff; border-radius:14px;
+    padding:10px 20px; text-align:center; max-width:86%;
+    box-shadow:0 4px 14px rgba(0,40,90,.35);
+  }
+  #caption .vi { font-size:19px; font-weight:800; }
+  #caption .en { font-size:13px; font-weight:700; opacity:.85; margin-top:2px; }
+  #caption .bang {
+    font-size:44px; font-weight:900; color:#ff5252;
+    text-shadow:0 3px 0 rgba(0,0,0,.35); line-height:1;
+  }
+  #caption .bang .ah { color:#ffe082; font-size:30px; margin-left:10px; }
+  /* ---------- load error (CDN không tới được) ---------- */
+  #loadErr {
+    position:absolute; inset:0; z-index:20;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:24px; gap:10px;
+    background:rgba(10,60,120,.88); color:#fff;
+  }
+  #loadErr .big { font-size:26px; font-weight:900; }
+  #loadErr p { font-size:15px; line-height:1.6; opacity:.95; max-width:320px; }
+  @media (prefers-reduced-motion: reduce) {
+    #menu img.hero { animation:none; }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="gl"></canvas>
+  <div id="vignette"></div>
+
+  <div id="hud" class="hidden">
+    <div class="pill best"><span data-i18n="best">KỶ LỤC</span> · <span id="bestHud">0</span></div>
+    <div class="right">
+      <div class="pill score"><small data-i18n="score">ĐIỂM · SCORE</small><span id="score">0</span><span id="mult">x1</span></div>
+      <div class="pill coins"><img src="art/coin-3d.png" alt="xu" onerror="this.style.display='none'"> <span id="coins">0</span></div>
+    </div>
+  </div>
+
+  <div id="hint" class="hidden" data-i18n="hint">Vuốt ◀ ▶ đổi làn · ▲ nhảy lên tàu / cầu thang vàng · ▼ trượt dưới rào · Lượm xu vàng!</div>
+
+  <div id="caption" class="hidden"><div class="box">
+    <div class="vi" id="capVi"></div>
+    <div class="en" id="capEn"></div>
+  </div></div>
+
+  <div id="menu" class="overlay">
+    <div class="title" data-i18n-html="title">BÉ CÁ<br>CHẠY</div>
+    <div class="subtitle" data-i18n="subtitle">Sói đuổi ngay sau lưng — nhảy lên tàu hay chạy lên cầu thang vàng, trượt dưới rào, lượm xu vàng!</div>
+    <img class="hero" src="art/beca-run-front.png" alt="Bé cá">
+    <div class="howto">
+      <span class="k">◀ ▶</span> <span data-i18n="how1">hoặc vuốt ngang: đổi làn</span><br>
+      <span class="k">▲</span> <span data-i18n="how2">/ chạm màn hình: nhảy qua rào, nhảy lên nóc tàu — hoặc chạy lên cầu thang vàng ở đuôi tàu</span><br>
+      <span class="k">▼</span> <span data-i18n="how3">/ vuốt xuống: trượt dưới rào cao</span><br>
+      <span data-i18n="how4">Lượm <b>xu vàng</b> để cộng điểm!</span><br>
+      <span data-i18n="how5">7 giây đầu sói đuổi ngay sau lưng — đừng để bị bắt!</span>
+    </div>
+    <button class="btn" id="startBtn" data-i18n="start">CHẠY THÔI! ▶</button>
+    <div class="menufoot">
+      <div class="best"><span data-i18n="best">Kỷ lục</span> · Best: <b id="bestMenu">0</b></div>
+      <button class="btn small" id="langBtn">VI | EN</button>
+    </div>
+  </div>
+
+  <div id="gameover" class="overlay hidden">
+    <div class="catch">
+      <img class="wolf" src="art/wolf-run2.png" alt="Sói">
+      <img class="cry" src="art/beca-cry.png" alt="Bé cá khóc">
+    </div>
+    <div class="big" data-i18n="overTitle">SÓI BẮT ĐƯỢC CÁ RỒI!</div>
+    <div class="subtitle" data-i18n="overSub">Bé cá khóc òa — sói đã đuổi kịp!</div>
+    <div class="stats">
+      <span data-i18n="statScore">Điểm · Score</span>: <b id="finalScore">0</b><br>
+      <span data-i18n="statCoins">Xu · Coins</span>: <b id="finalCoins">0</b><br>
+      <span data-i18n="statDist">Quãng đường</span>: <b id="finalDist">0</b> m
+    </div>
+    <div class="newbest hidden" id="newBest" data-i18n="newBest">🎉 Kỷ lục mới! New best!</div>
+    <button class="btn" id="againBtn" data-i18n="again">CHẠY LẠI ↻</button>
+    <div class="menufoot">
+      <div class="best"><span data-i18n="best">Kỷ lục</span> · Best: <b id="bestOver">0</b></div>
+      <button class="btn small" id="langBtn2">VI | EN</button>
+    </div>
+  </div>
+
+  <div id="loadErr" class="hidden">
+    <div class="big">Không tải được 3D 😢</div>
+    <p>Game cần mạng để tải thư viện Three.js. An kiểm tra mạng rồi tải lại trang nhé!<br>
+    <span style="opacity:.8">The game needs internet to load the Three.js library. Please check your connection and reload.</span></p>
+  </div>
+</div>
+
+<script>
+// Nếu module Three.js không chạy được trong 15s (CDN chặn / mất mạng) thì báo lỗi thân thiện.
+setTimeout(function(){
+  if (!window.__beca3dReady) {
+    var e = document.getElementById('loadErr');
+    if (e) e.classList.remove('hidden');
+  }
+}, 15000);
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+"use strict";
+/* ============================================================
+   BÉ CÁ CHẠY 3D — v1.0 (Three.js r160, 3D THẬT)
+   Làm lại từ bản 2D v15.3: cùng luật chơi, cùng art nhân vật
+   đã duyệt — nhưng tàu / rào / xu / đường ray là hộp 3D thật,
+   có bóng đổ thật, camera sau lưng như Subway Surfers.
+   - 3 làn đường, vuốt/phím đổi làn, nhảy lên nóc tàu, cầu thang
+     vàng lên nóc, rào thấp nhảy qua, rào trên cao trượt qua,
+     xu vàng (hàng / vòng cung / trên nóc), sói rượt 7s phía sau,
+     điểm + hệ số nhân, kỷ lục localStorage 'becaRunBest' (chung
+     với bản 2D), nút VI|EN, màn game over tách đôi (v15.1).
+   - KHÔNG BAO GIỜ rung màn hình (An bị đau mắt/nhức đầu) —
+     camera chỉ lerp mượt theo làn, không shake, không flash.
+   - Nhân vật: art đã duyệt, crop đúng bbox alpha (cùng pixel,
+     chỉ cắt viền trong suốt) — billboard THREE.Sprite luôn quay
+     về camera: 4 frame chạy (mặt sau), trượt, mặt trước (menu /
+     cutscene), sói 4 frame chạy + ngồi (cutscene).
+   - Tàu: hộp 3D thật — thân + nóc dày + vách 2 bên có cửa sổ /
+     cửa / sọc kem (hộp mỏng gắn hông), gầm tối + bánh xe, mặt
+     sau dùng đúng art train-red/orange/blue.png làm texture.
+   Tỉ lệ: 1 đơn vị ≈ 100 local của bản 2D (cá 1.65, tàu 3.2 =
+   1.94x cá, rào nhìn 2.6 = 1.58x cá, nhảy đỉnh 3.49).
+   ============================================================ */
+
+/* ---------- tuning (giữ đúng luật v15.3, đổi sang đơn vị 3D) ---------- */
+const LANE_X = 2.2;          // khoảng cách giữa 2 làn
+const CHAR_H = 1.65;         // chiều cao vẽ của bé cá
+const CHAR_HW = 0.28;        // nửa bề rộng hitbox
+const TRAIN_W = 2.1, TRAIN_H = 3.2, TRAIN_LEN_MIN = 12, TRAIN_LEN_MAX = 20;
+const LOW_H = 0.55, LOW_VIS_H = 2.6, LOW_W = 2.0;   // rào thấp: va chạm 0.55, nhìn 2.6
+const OVER_H = 1.2, OVER_GAP = 0.92, OVER_W = 2.22; // rào trên cao: khe hở 0.92
+const COIN_R = 0.28, COIN_PICKUP = 0.55;
+const SLIDE_H = 0.7, SLIDE_DUR = 0.8, SLIDE_CD = 0.5;
+const JUMP_V = 12.4, JUMP_G = 22;   // đỉnh 3.49, bay ~1.13s
+const SPEED_BASE = 10, SPEED_MAX = 24, SPEED_RAMP = 0.35;
+const SPAWN_Z = -85, HIT_Z = 0.9;  // z âm = phía trước (xa camera)
+const RAMP_LEN = 6, RAMP_TOP = 1.2, RAMP_CHANCE = 0.5, RAMP_STEPS = 6;
+const WOLF_H = 1.95, WOLF_Z = 3.0, WOLF_CHASE_T = 7;
+const MULT_EVERY_M = 500, MULT_CAP = 60;
+const CUT_DUR = 3.6, CUT_A = 1.2, CUT_B = 1.9, CUT_C = 2.7;
+const COIN_ARC_Z = [-2.4, -1.2, 0, 1.2, 2.4];
+const COIN_ARC_H = [1.88, 2.76, 3.29, 3.52, 3.35];
+
+/* camera — tính trước bằng Python: chân cá ~0.81 màn hình, đầu sói
+   ngay dưới chân cá, chân sói vừa chạm mép dưới; chỉnh qua URL
+   ?camY=&camZ=&lookY=&lookZ=&fov=&wolfZ= để thử bố cục khác */
+const P = new URLSearchParams(location.search);
+const CAM_Y = parseFloat(P.get('camY') || '5.2');
+const CAM_Z = parseFloat(P.get('camZ') || '7.6');
+const LOOK_Y = parseFloat(P.get('lookY') || '0.8');
+const LOOK_Z = parseFloat(P.get('lookZ') || '-10');
+const FOV = parseFloat(P.get('fov') || '62');
+const WOLF_Z_CFG = parseFloat(P.get('wolfZ') || String(WOLF_Z));
+
+const TRAIN_COLORS = {
+  red:    { side: 0x9c2f22, roof: 0x7e2a20, roofDark: 0x5e1f16, fascia: 0x571a12, skirt: 0x3d1512 },
+  orange: { side: 0xb25e1a, roof: 0x8f4d14, roofDark: 0x6b3a0e, fascia: 0x63350c, skirt: 0x3d2710 },
+  blue:   { side: 0x2f6db3, roof: 0x2a5f8f, roofDark: 0x1d4a73, fascia: 0x173a5e, skirt: 0x1a3248 },
+};
+const TRAIN_COLOR_LIST = ['red', 'orange', 'blue'];
+
+/* ---------- ngôn ngữ VI | EN ---------- */
+const STR = {
+  vi: {
+    title: 'BÉ CÁ<br>CHẠY', subtitle: 'Sói đuổi ngay sau lưng — nhảy lên tàu hay chạy lên cầu thang vàng, trượt dưới rào, lượm xu vàng!',
+    how1: 'hoặc vuốt ngang: đổi làn',
+    how2: '/ chạm màn hình: nhảy qua rào, nhảy lên nóc tàu — hoặc chạy lên cầu thang vàng ở đuôi tàu',
+    how3: '/ vuốt xuống: trượt dưới rào cao',
+    how4: 'Lượm xu vàng để cộng điểm!',
+    how5: '7 giây đầu sói đuổi ngay sau lưng — đừng để bị bắt!',
+    start: 'CHẠY THÔI! ▶', best: 'Kỷ lục', score: 'ĐIỂM · SCORE',
+    hint: 'Vuốt ◀ ▶ đổi làn · ▲ nhảy lên tàu / cầu thang vàng · ▼ trượt dưới rào · Lượm xu vàng!',
+    overTitle: 'SÓI BẮT ĐƯỢC CÁ RỒI!', overSub: 'Bé cá khóc òa — sói đã đuổi kịp!',
+    statScore: 'Điểm · Score', statCoins: 'Xu · Coins', statDist: 'Quãng đường',
+    newBest: '🎉 Kỷ lục mới! New best!', again: 'CHẠY LẠI ↻',
+    capA: ['Sói đang ngủ say…', 'The wolf is fast asleep…'],
+    capB: ['Bé cá dẫm phải đuôi sói!', 'Bé cá stepped on the wolf’s tail!'],
+    capC: ['Sói tỉnh dậy rồi — giận lắm!', 'The wolf woke up — ANGRY!'],
+    capD: ['CHẠY ĐI!', 'RUN!'],
+  },
+  en: {
+    title: 'BÉ CÁ<br>RUN', subtitle: 'The wolf is right behind you — jump on trains or run up the yellow stairs, slide under bars, grab gold coins!',
+    how1: 'or swipe sideways: switch lanes',
+    how2: '/ tap the screen: jump over bars, jump on train roofs — or run up the yellow stairs at the back of a train',
+    how3: '/ swipe down: slide under the high bar',
+    how4: 'Grab gold coins for points!',
+    how5: 'For the first 7 seconds the wolf chases right behind you — don’t get caught!',
+    start: 'LET’S RUN! ▶', best: 'Best', score: 'SCORE',
+    hint: 'Swipe ◀ ▶ to switch lanes · ▲ jump on trains / yellow stairs · ▼ slide under bars · Grab gold coins!',
+    overTitle: 'THE WOLF CAUGHT HER!', overSub: 'Bé cá burst into tears — the wolf caught up!',
+    statScore: 'Score', statCoins: 'Coins', statDist: 'Distance',
+    newBest: '🎉 New best!', again: 'RUN AGAIN ↻',
+    capA: ['The wolf is fast asleep…', 'Sói đang ngủ say…'],
+    capB: ['Bé cá stepped on the wolf’s tail!', 'Bé cá dẫm phải đuôi sói!'],
+    capC: ['The wolf woke up — ANGRY!', 'Sói tỉnh dậy rồi — giận lắm!'],
+    capD: ['RUN!', 'CHẠY ĐI!'],
+  },
+};
+let lang = 'vi';
+function applyLang(){
+  const s = STR[lang];
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const k = el.getAttribute('data-i18n');
+    if (s[k] !== undefined) el.textContent = s[k];
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    const k = el.getAttribute('data-i18n-html');
+    if (s[k] !== undefined) el.innerHTML = s[k];
+  });
+}
+function toggleLang(){ lang = (lang === 'vi') ? 'en' : 'vi'; applyLang(); }
+document.getElementById('langBtn').addEventListener('click', toggleLang);
+document.getElementById('langBtn2').addEventListener('click', toggleLang);
+
+/* ---------- DOM ---------- */
+const $ = id => document.getElementById(id);
+const hudEl=$('hud'), scoreEl=$('score'), multEl=$('mult'), coinsEl=$('coins'), bestHudEl=$('bestHud'),
+      menuEl=$('menu'), overEl=$('gameover'), hintEl=$('hint'), capEl=$('caption'),
+      capViEl=$('capVi'), capEnEl=$('capEn'),
+      bestMenuEl=$('bestMenu'), bestOverEl=$('bestOver');
+const capBang = document.createElement('div');
+capBang.className = 'bang';
+capBang.innerHTML = '! <span class="ah">Á!</span>';
+capBang.style.display = 'none';
+capEl.querySelector('.box').appendChild(capBang);
+
+/* ---------- state (cùng hình dạng với v15.3) ---------- */
+const S = {
+  mode: 'menu', time: 0, runTime: 0, speed: SPEED_BASE, distance: 0,
+  score: 0, coins: 0, mult: 1, best: 0,
+  lane: 0, charX: 0,
+  jumpT: -1, jumpBase: 0, slideT: -1, slideCd: 0,
+  onTrain: null, entities: [],
+  spawnAcc: 0, nextGap: 12, patterns: 0,
+  prevPassable: [], prevRowOverLanes: [], prevRowTrains: 0, nextGapAfter: 13,
+  over: false, newBest: false, cutT: 0,
+  trainCount: 0, slideCount: 0, roofRideCount: 0,
+  coinLineCount: 0, coinArcCount: 0, roofCoinCount: 0,
+  smoke: [], smokeAcc: 0,
+};
+try { S.best = parseInt(localStorage.getItem('becaRunBest') || '0', 10) || 0; } catch(e) { S.best = 0; }
+function saveBest(){ try { localStorage.setItem('becaRunBest', String(S.best)); } catch(e){} }
+
+/* ---------- three.js: renderer / scene / camera / lights ---------- */
+const canvas = $('gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x9fd8f5, 42, 96);
+const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 300);
+let camX = 0, lookX = 0;
+function placeCamera(){
+  camera.position.set(camX, CAM_Y, CAM_Z);
+  camera.lookAt(lookX, LOOK_Y, LOOK_Z);
+}
+placeCamera();
+
+const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x8a7a68, 0.95);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
+sun.position.set(10, 16, 8);
+sun.target.position.set(0, 0, -6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -14; sun.shadow.camera.right = 14;
+sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 60;
+sun.shadow.bias = -0.0008;
+scene.add(sun); scene.add(sun.target);
+
+/* ---------- canvas textures (vẽ bằng code, không cần file) ---------- */
+function canvasTex(w, h, draw){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const skyTex = canvasTex(16, 256, (g, w, h) => {
+  const gr = g.createLinearGradient(0, 0, 0, h);
+  gr.addColorStop(0.0, '#4aa8e8'); gr.addColorStop(0.45, '#8fd3f4');
+  gr.addColorStop(0.75, '#cfeefb'); gr.addColorStop(1.0, '#e8f7fd');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+const gravelTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#9b8b78'; g.fillRect(0, 0, w, h);
+  const cols = ['#8a7a68', '#a89a86', '#7d6f5e', '#b3a48e', '#94836e'];
+  for (let i = 0; i < 2600; i++){
+    g.fillStyle = cols[(Math.random() * cols.length) | 0];
+    g.globalAlpha = 0.25 + Math.random() * 0.5;
+    const r = 1 + Math.random() * 2.4;
+    g.beginPath(); g.arc(Math.random() * w, Math.random() * h, r, 0, Math.PI * 2); g.fill();
+  }
+  g.globalAlpha = 1;
+});
+gravelTex.wrapS = gravelTex.wrapT = THREE.RepeatWrapping;
+gravelTex.repeat.set(30, 20);
+const chevronTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#c62828'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#ffffff'; g.lineWidth = 26; g.lineCap = 'square';
+  for (let k = -4; k < 9; k++){
+    g.beginPath(); g.moveTo(k * 64, h + 14); g.lineTo(k * 64 + 128, -14); g.stroke();
+  }
+  g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, h - 26, w, 26);
+});
+chevronTex.wrapS = chevronTex.wrapT = THREE.RepeatWrapping;
+const stripeTex = canvasTex(128, 64, (g, w, h) => {
+  g.fillStyle = '#c62828'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 8, w, 12); g.fillRect(0, 40, w, 12);
+});
+stripeTex.wrapS = stripeTex.wrapT = THREE.RepeatWrapping;
+const buildingTex = canvasTex(128, 256, (g, w, h) => {
+  g.fillStyle = '#f2ede4'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#33475e';
+  for (let y = 18; y < h - 14; y += 30)
+    for (let x = 14; x < w - 14; x += 28)
+      g.fillRect(x, y, 16, 18);
+  g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, h - 10, w, 10);
+});
+buildingTex.wrapS = buildingTex.wrapT = THREE.RepeatWrapping;
+const blobTex = canvasTex(128, 128, (g, w, h) => {
+  const gr = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+  gr.addColorStop(0, 'rgba(40,20,0,0.55)'); gr.addColorStop(1, 'rgba(40,20,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+const smokeTex = canvasTex(128, 128, (g, w, h) => {
+  const gr = g.createRadialGradient(64, 64, 6, 64, 64, 60);
+  gr.addColorStop(0, 'rgba(179,162,132,0.55)'); gr.addColorStop(1, 'rgba(179,162,132,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+
+/* ---------- môi trường: trời, đất, ray, nhà, cây, cột, mây ---------- */
+{
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(160, 24, 16),
+    new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false }));
+  scene.add(sky);
+}
+const groundMat = new THREE.MeshStandardMaterial({ map: gravelTex, roughness: 1, metalness: 0 });
+{
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(260, 170), groundMat);
+  ground.rotation.x = -Math.PI / 2; ground.position.set(0, 0, -40);
+  ground.receiveShadow = true; scene.add(ground);
+}
+const bedMat = new THREE.MeshStandardMaterial({ color: 0x8a7a68, roughness: 1 });
+const railMat = new THREE.MeshStandardMaterial({ color: 0xb8c0c8, roughness: 0.35, metalness: 0.85 });
+const sleeperMat = new THREE.MeshStandardMaterial({ color: 0x7d5636, roughness: 1 });
+const SLEEPER_N = 100, SLEEPER_SPAN = 130, SLEEPER_STEP = 1.3;
+const sleepers = new THREE.InstancedMesh(new THREE.BoxGeometry(2.7, 0.07, 0.55), sleeperMat, SLEEPER_N * 3);
+sleepers.receiveShadow = true;
+const sleeperZ = [];
+for (let l = 0; l < 3; l++) for (let i = 0; i < SLEEPER_N; i++)
+  sleeperZ.push(-110 + i * SLEEPER_STEP);
+const _dummy = new THREE.Object3D();
+function updateSleepers(){
+  for (let i = 0; i < sleeperZ.length; i++){
+    const lane = [-LANE_X, 0, LANE_X][(i / SLEEPER_N) | 0];
+    _dummy.position.set(lane, 0, sleeperZ[i]);
+    _dummy.updateMatrix();
+    sleepers.setMatrixAt(i, _dummy.matrix);
+  }
+  sleepers.instanceMatrix.needsUpdate = true;
+}
+updateSleepers();
+scene.add(sleepers);
+for (const lane of [-LANE_X, 0, LANE_X]){
+  const bed = new THREE.Mesh(new THREE.PlaneGeometry(3.4, SLEEPER_SPAN), bedMat);
+  bed.rotation.x = -Math.PI / 2; bed.position.set(lane, 0.01, -45);
+  bed.receiveShadow = true; scene.add(bed);
+  for (const side of [-0.75, 0.75]){
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, SLEEPER_SPAN), railMat);
+    rail.position.set(lane + side, 0.1, -45);
+    rail.castShadow = true; scene.add(rail);
+  }
+}
+const wallMat = new THREE.MeshStandardMaterial({ color: 0xd8d2c8, roughness: 0.9 });
+const wallTopMat = new THREE.MeshStandardMaterial({ color: 0x7fb3d5, roughness: 0.8 });
+for (const side of [-1, 1]){
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.1, 130), wallMat);
+  wall.position.set(side * 5.4, 0.55, -45); wall.castShadow = true; scene.add(wall);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.1, 130), wallTopMat);
+  top.position.set(side * 5.4, 1.14, -45); scene.add(top);
+}
+const buildingCols = [0xf2e3c9, 0xf6d9c9, 0xd9e8f5, 0xddefd2, 0xefe0ee, 0xf5e9c8];
+const buildingMats = buildingCols.map(c =>
+  new THREE.MeshStandardMaterial({ map: buildingTex, color: c, roughness: 0.95 }));
+{
+  let bi = 0;
+  for (const side of [-1, 1]){
+    for (let z = -92; z < 12; z += 13 + ((bi * 7) % 5)){
+      const w = 4 + ((bi * 3) % 3), d = 4 + ((bi * 5) % 3), h = 3.5 + ((bi * 11) % 6);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), buildingMats[bi % buildingMats.length]);
+      b.position.set(side * (8.5 + ((bi * 3) % 4)), h / 2, z);
+      scene.add(b);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.25, d + 0.2),
+        new THREE.MeshStandardMaterial({ color: 0x8a7a68, roughness: 1 }));
+      roof.position.set(b.position.x, h + 0.12, z); scene.add(roof);
+      bi++;
+    }
+  }
+}
+const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
+const leafMat = new THREE.MeshStandardMaterial({ color: 0x5da24a, roughness: 1 });
+const leafMat2 = new THREE.MeshStandardMaterial({ color: 0x6db35a, roughness: 1 });
+for (let i = 0; i < 12; i++){
+  const side = (i % 2 === 0) ? -1 : 1;
+  const z = -95 + i * 9 + ((i * 5) % 4);
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.9, 8), trunkMat);
+  trunk.position.y = 0.45; g.add(trunk);
+  const l1 = new THREE.Mesh(new THREE.SphereGeometry(0.85, 10, 8), i % 2 ? leafMat : leafMat2);
+  l1.position.y = 1.5; l1.scale.y = 1.15; l1.castShadow = true; g.add(l1);
+  const l2 = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), leafMat2);
+  l2.position.set(0.35, 2.1, 0.15); g.add(l2);
+  g.position.set(side * (6.3 + ((i * 7) % 3) * 0.5), 0, z);
+  scene.add(g);
+}
+const poleMat = new THREE.MeshStandardMaterial({ color: 0x4a4a52, roughness: 0.7, metalness: 0.4 });
+for (let i = 0; i < 8; i++){
+  for (const side of [-1, 1]){
+    const g = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 5.2, 8), poleMat);
+    pole.position.y = 2.6; pole.castShadow = true; g.add(pole);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.08, 0.08), poleMat);
+    arm.position.set(-side * 0.8, 4.9, 0); g.add(arm);
+    g.position.set(side * 4.4, 0, -95 + i * 16);
+    scene.add(g);
+  }
+}
+const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: true, transparent: true, opacity: 0.92 });
+const clouds = [];
+for (let i = 0; i < 7; i++){
+  const c = new THREE.Mesh(new THREE.SphereGeometry(2.2 + (i % 3), 12, 10), cloudMat);
+  c.scale.y = 0.38;
+  c.position.set(-24 + i * 8 + ((i * 5) % 6), 16 + (i % 3) * 3.5, -55 - i * 6);
+  clouds.push(c); scene.add(c);
+}
+
+/* ---------- vật liệu / hình học dùng chung (tái sử dụng) ---------- */
+const MAT = {
+  frame: new THREE.MeshStandardMaterial({ color: 0x1d3557, roughness: 0.6 }),
+  glass: new THREE.MeshStandardMaterial({ color: 0xbfe3f2, roughness: 0.15, metalness: 0.25 }),
+  stripe: new THREE.MeshStandardMaterial({ color: 0xffe9b0, roughness: 0.8 }),
+  walk: new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: 0.9 }),
+  dark: new THREE.MeshStandardMaterial({ color: 0x1c1c22, roughness: 0.9 }),
+  chevron: new THREE.MeshStandardMaterial({ map: chevronTex, roughness: 0.7 }),
+  barStripe: new THREE.MeshStandardMaterial({ map: stripeTex, roughness: 0.7 }),
+  gold: new THREE.MeshStandardMaterial({ color: 0xffc93c, roughness: 0.25, metalness: 0.75, emissive: 0x553300, emissiveIntensity: 0.6 }),
+  stair: new THREE.MeshStandardMaterial({ color: 0xe8b23a, roughness: 0.8 }),
+  stairTread: new THREE.MeshStandardMaterial({ color: 0xf2c14e, roughness: 0.8 }),
+  stairEdge: new THREE.MeshStandardMaterial({ color: 0xffe082, roughness: 0.8 }),
+  plinth: new THREE.MeshStandardMaterial({ color: 0x8a6a12, roughness: 0.9 }),
+};
+const trainMats = {};
+for (const k of TRAIN_COLOR_LIST){
+  const c = TRAIN_COLORS[k];
+  trainMats[k] = {
+    side: new THREE.MeshStandardMaterial({ color: c.side, roughness: 0.55 }),
+    roof: new THREE.MeshStandardMaterial({ color: c.roof, roughness: 0.6 }),
+    roofDark: new THREE.MeshStandardMaterial({ color: c.roofDark, roughness: 0.6 }),
+    skirt: new THREE.MeshStandardMaterial({ color: c.skirt, roughness: 0.9 }),
+  };
+}
+const GEO = { box: new THREE.BoxGeometry(1, 1, 1) };
+const rearFaceGeo = new THREE.PlaneGeometry(TRAIN_W, 3.05);
+const coinGeo = new THREE.CylinderGeometry(COIN_R, COIN_R, 0.07, 24);
+const trainFaceMats = {};
+for (const k of TRAIN_COLOR_LIST) trainFaceMats[k] = null; // gán sau khi load texture
+function box(w, h, d, mat, x, y, z, parent, shadow = true){
+  const m = new THREE.Mesh(GEO.box, mat);
+  m.scale.set(w, h, d);
+  m.position.set(x, y, z);
+  if (shadow){ m.castShadow = true; m.receiveShadow = true; }
+  parent.add(m);
+  return m;
+}
+
+/* ---------- textures nhân vật (art đã duyệt, crop sẵn) ---------- */
+const manager = new THREE.LoadingManager();
+const texLoader = new THREE.TextureLoader(manager);
+const texReady = {};
+function loadTex(path, key){
+  texReady[key] = false;
+  const t = texLoader.load(path, () => { texReady[key] = true; });
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+const TEX = {
+  run: ['beca-run-back.png', 'run-frame2.png', 'run-frame3.png', 'run-frame4.png']
+    .map((f, i) => loadTex('art/' + f, 'run' + i)),
+  slide: loadTex('art/slide-pose.png', 'slide'),
+  front: loadTex('art/beca-run-front.png', 'front'),
+  wolfRun: ['wolf-run1.png', 'wolf-run2.png', 'wolf-run3.png', 'wolf-run4.png']
+    .map((f, i) => loadTex('art/' + f, 'wolf' + i)),
+  wolfSit: loadTex('art/wolf-sit.png', 'wolfSit'),
+  train: {
+    red: loadTex('art/train-red.png', 'trainRed'),
+    orange: loadTex('art/train-orange.png', 'trainOrange'),
+    blue: loadTex('art/train-blue.png', 'trainBlue'),
+  },
+};
+for (const k of TRAIN_COLOR_LIST){
+  trainFaceMats[k] = new THREE.MeshStandardMaterial({
+    map: TEX.train[k], transparent: true, roughness: 0.6, depthWrite: false });
+}
+const RUN_ASPECT = [0.554, 0.717, 0.670, 0.739];
+const WOLF_ASPECT = [1.082, 0.860, 1.135, 0.862];
+const SLIDE_ASPECT = 1.517, FRONT_ASPECT = 0.503, WOLF_SIT_ASPECT = 1.2;
+
+function makeSprite(tex, aspect, h){
+  const m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const s = new THREE.Sprite(m);
+  s.scale.set(h * aspect, h, 1);
+  return s;
+}
+const charSprite = makeSprite(TEX.run[0], RUN_ASPECT[0], CHAR_H);
+charSprite.position.set(0, CHAR_H / 2, 0);
+scene.add(charSprite);
+const charBlob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false }));
+charBlob.rotation.x = -Math.PI / 2;
+charBlob.scale.set(1.1, 0.9, 1);
+charBlob.position.set(0, 0.02, 0.1);
+scene.add(charBlob);
+
+const wolfSprite = makeSprite(TEX.wolfRun[0], WOLF_ASPECT[0], WOLF_H);
+wolfSprite.position.set(0, WOLF_H / 2, WOLF_Z_CFG);
+wolfSprite.visible = false;
+scene.add(wolfSprite);
+const wolfBlob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false }));
+wolfBlob.rotation.x = -Math.PI / 2;
+wolfBlob.scale.set(1.7, 1.3, 1);
+wolfBlob.position.set(0, 0.02, WOLF_Z_CFG + 0.1);
+wolfBlob.visible = false;
+scene.add(wolfBlob);
+
+const cutWolfSit = makeSprite(TEX.wolfSit, WOLF_SIT_ASPECT, 1.75);
+cutWolfSit.visible = false; scene.add(cutWolfSit);
+const cutBeca = makeSprite(TEX.front, FRONT_ASPECT, CHAR_H);
+cutBeca.visible = false; scene.add(cutBeca);
+const cutWolf = makeSprite(TEX.wolfRun[0], WOLF_ASPECT[0], WOLF_H);
+cutWolf.visible = false; scene.add(cutWolf);
+
+const smokePool = [];
+for (let i = 0; i < 14; i++){
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, opacity: 0 }));
+  s.visible = false; scene.add(s);
+  smokePool.push({ s, life: 0, max: 1 });
+}
+
+/* ---------- builder: tàu / rào / xu / cầu thang (hộp 3D thật) ---------- */
+function buildTrainGroup(e){
+  const g = new THREE.Group();
+  const len = e.len, m = trainMats[e.color];
+  // thân + nóc dày + gầm tối + bánh xe
+  box(TRAIN_W, 2.57, len, m.side, 0, 1.635, -len / 2, g);            // thân (y 0.35..2.92)
+  box(TRAIN_W + 0.06, 0.28, len, m.roofDark, 0, 3.06, -len / 2, g);  // nóc dày (tới 3.2)
+  box(0.5, 0.02, len - 0.6, MAT.walk, 0, 3.205, -len / 2, g, false); // lối đi giữa nóc
+  box(1.9, 0.45, len, m.skirt, 0, 0.275, -len / 2, g);               // gầm tối
+  box(1.5, 0.3, 1.0, MAT.dark, 0, 0.15, -len * 0.28, g);             // bánh xe trước
+  box(1.5, 0.3, 1.0, MAT.dark, 0, 0.15, -len * 0.72, g);             // bánh xe sau
+  // mặt sau: đúng art train-*.png (2 cửa sổ + cửa giữa + đèn), viền trong suốt lộ thân
+  const face = new THREE.Mesh(rearFaceGeo, trainFaceMats[e.color]);
+  face.position.set(0, 1.625, 0.02);
+  g.add(face);
+  // vách 2 bên: sọc kem + cửa sổ / cửa (hộp mỏng gắn hông, theo từng trạm)
+  for (const side of [-1, 1]){
+    const x = side * (TRAIN_W / 2 + 0.01);
+    box(0.02, 0.16, len - 0.5, MAT.stripe, x, 1.15, -len / 2, g, false);
+    box(0.02, 0.16, len - 0.5, MAT.stripe, x, 2.55, -len / 2, g, false);
+    let station = 0;
+    for (let z = -2.5; z > -len + 2; z -= 4.4, station++){
+      if (station % 3 === 0){
+        // cửa lên xuống: khung navy + kính trên + thân dưới + khe giữa
+        box(0.06, 1.9, 0.9, MAT.frame, x, 1.35, z, g, false);
+        box(0.04, 0.7, 0.7, MAT.glass, x + side * 0.02, 1.95, z, g, false);
+        box(0.04, 1.1, 0.7, m.side, x + side * 0.02, 0.95, z, g, false);
+      } else {
+        // cửa sổ: khung navy + kính xanh nhạt
+        box(0.06, 0.95, 0.75, MAT.frame, x, 1.95, z, g, false);
+        box(0.04, 0.8, 0.6, MAT.glass, x + side * 0.02, 1.95, z, g, false);
+      }
+    }
+    // đường nối panel nóc (ngang nóc, mỗi 4 đơn vị)
+    for (let z = -2; z > -len + 2; z -= 4)
+      box(TRAIN_W * 0.9, 0.02, 0.06, MAT.dark, 0, 3.21, z, g, false);
+  }
+  if (e.ramp) buildRamp(g, len);
+  return g;
+}
+function buildRamp(g, len){
+  // Cầu thang vàng ĐẶC sau đuôi tàu: 6 bậc hộp đặc xếp chồng từ mặt đất
+  // lên nóc + bệ phẳng + bệ đỡ ở chân — không còn thẻ lơ lửng.
+  const stepLen = (RAMP_LEN - RAMP_TOP) / RAMP_STEPS; // 0.8
+  for (let j = 0; j < RAMP_STEPS; j++){
+    const h = TRAIN_H * (j + 1) / RAMP_STEPS;
+    const zNear = RAMP_LEN - j * stepLen, zFar = RAMP_LEN - (j + 1) * stepLen;
+    box(1.5, h, stepLen, MAT.stair, 0, h / 2, (zNear + zFar) / 2, g);
+    box(1.5, 0.05, stepLen, MAT.stairTread, 0, h + 0.01, (zNear + zFar) / 2, g, false);
+    box(1.52, 0.07, 0.06, MAT.stairEdge, 0, h - 0.02, zNear, g, false);
+  }
+  // bệ phẳng trên cùng (tới mặt sau tàu) + bệ đỡ ở chân
+  box(1.5, TRAIN_H, RAMP_TOP, MAT.stair, 0, TRAIN_H / 2, RAMP_TOP / 2, g);
+  box(1.5, 0.04, RAMP_TOP, MAT.stairTread, 0, TRAIN_H + 0.01, RAMP_TOP / 2, g, false);
+  box(1.8, 0.2, 0.7, MAT.plinth, 0, 0.1, RAMP_LEN + 0.1, g);
+}
+function buildLowGroup(){
+  const g = new THREE.Group();
+  box(LOW_W, LOW_VIS_H, 0.16, MAT.chevron, 0, LOW_VIS_H / 2, 0, g);
+  box(0.3, 0.18, 0.5, MAT.dark, -0.8, 0.09, 0, g);
+  box(0.3, 0.18, 0.5, MAT.dark, 0.8, 0.09, 0, g);
+  return g;
+}
+function buildOverGroup(){
+  const g = new THREE.Group();
+  box(0.14, OVER_H, 0.14, MAT.dark, -1.04, OVER_H / 2, 0, g);
+  box(0.14, OVER_H, 0.14, MAT.dark, 1.04, OVER_H / 2, 0, g);
+  box(OVER_W, 0.28, 0.22, MAT.barStripe, 0, 1.06, 0, g);
+  return g;
+}
+function buildCoinGroup(){
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(coinGeo, MAT.gold);
+  m.rotation.x = Math.PI / 2;
+  m.castShadow = true;
+  g.add(m);
+  return g;
+}
+
+/* ---------- entities ---------- */
+function addTrainEnt(lane, z, len, color, ramp){
+  const e = { kind: 'train', lane, z, len, color, ramp: !!ramp };
+  e.group = buildTrainGroup(e);
+  e.group.position.set(lane * LANE_X, 0, z);
+  scene.add(e.group);
+  S.entities.push(e);
+  S.trainCount++;
+  return e;
+}
+function addEnt(e){
+  if (e.kind === 'low') e.group = buildLowGroup();
+  else if (e.kind === 'over') e.group = buildOverGroup();
+  else if (e.kind === 'coin') e.group = buildCoinGroup();
+  e.group.position.set(e.lane * LANE_X, (e.h || 0) + (e.kind === 'coin' ? COIN_R : 0), e.z);
+  scene.add(e.group);
+  S.entities.push(e);
+  return e;
+}
+function removeEnt(e){
+  if (e.group) scene.remove(e.group);
+  const i = S.entities.indexOf(e);
+  if (i >= 0) S.entities.splice(i, 1);
+}
+function clearEntities(){
+  for (const e of S.entities.slice()) removeEnt(e);
+  S.entities = [];
+}
+
+/* ---------- helpers (port từ v15.3) ---------- */
+function speedNorm(){ return Math.max(0, Math.min(1, (S.speed - SPEED_BASE) / (SPEED_MAX - SPEED_BASE))); }
+function runFps(){ return 8 + S.speed * 0.06; }
+function runFrameIndex(){
+  if (S.mode !== 'playing') return 0;
+  if (S.jumpT >= 0) return 1;
+  return Math.floor(S.runTime * runFps()) % 4;
+}
+function wolfFrameIndex(){
+  if (S.mode !== 'playing') return 0;
+  return Math.floor(S.runTime * runFps()) % 4;
+}
+function wolfVisible(){ return S.mode === 'playing' && S.runTime < WOLF_CHASE_T; }
+function wolfAlpha(){
+  if (!wolfVisible()) return 0;
+  if (S.runTime < WOLF_CHASE_T - 1) return 1;
+  return Math.max(0, WOLF_CHASE_T - S.runTime);
+}
+function jumpApex(){ return (JUMP_V * JUMP_V) / (2 * JUMP_G); }
+function jumpHeight(){
+  if (S.jumpT < 0) return 0;
+  const t = S.jumpT;
+  return S.jumpBase + Math.max(0, JUMP_V * t - 0.5 * JUMP_G * t * t);
+}
+function rampTrainUnderPlayer(){
+  for (const e of S.entities){
+    if (e.kind !== 'train' || !e.ramp) continue;
+    if (e.lane !== S.lane) continue;
+    if (e.z < -RAMP_LEN || e.z > 0) continue;
+    return e;
+  }
+  return null;
+}
+function rampH(){
+  const t = rampTrainUnderPlayer();
+  if (!t) return 0;
+  const d = -t.z; // khoảng cách từ mặt sau tàu tới người chơi (0..6)
+  const f = Math.min(1, (RAMP_LEN - d) / (RAMP_LEN - RAMP_TOP));
+  return TRAIN_H * Math.max(0, f);
+}
+function isSliding(){ return S.slideT >= 0; }
+function trainUnderPlayer(){
+  for (const e of S.entities){
+    if (e.kind !== 'train') continue;
+    if (e.lane !== S.lane) continue;
+    if (e.z >= -HIT_Z && e.z - e.len <= 0) return e;
+  }
+  return null;
+}
+function landOnTrain(t){
+  if (S.onTrain !== t) S.roofRideCount++;
+  S.onTrain = t;
+  S.jumpT = -1;
+  S.jumpBase = 0;
+}
+function playerH(){
+  if (S.onTrain) return TRAIN_H;
+  if (S.jumpT >= 0) return jumpHeight();
+  return rampH();
+}
+function obstDims(kind){
+  if (kind === 'train') return { w: TRAIN_W, h: TRAIN_H };
+  if (kind === 'over') return { w: OVER_W, h: OVER_H };
+  if (kind === 'coin') return { w: COIN_R * 2, h: COIN_R * 2 };
+  return { w: LOW_W, h: LOW_H };
+}
+function lanePassable(lane, row){
+  const overlaps = row.filter(o => {
+    if (o.kind === 'coin') return false;
+    const d = obstDims(o.kind);
+    return Math.abs(lane - o.lane) * LANE_X < d.w / 2 + CHAR_HW;
+  });
+  if (overlaps.length === 0) return true;
+  if (overlaps.length > 1) return false;
+  const k = overlaps[0].kind;
+  if (k === 'low') return true;
+  if (k === 'over') return true;
+  if (k === 'train') return overlaps[0].ramp === true || jumpApex() >= TRAIN_H + 0.25;
+  return false;
+}
+function passableLanes(row){ return [-1, 0, 1].filter(l => lanePassable(l, row)); }
+
+/* ---------- controls ---------- */
+function moveLeft(){ if (S.mode !== 'playing') return; if (S.lane > -1) S.lane--; }
+function moveRight(){ if (S.mode !== 'playing') return; if (S.lane < 1) S.lane++; }
+function doJump(){
+  if (S.mode !== 'playing') return;
+  if (S.slideT >= 0) return;
+  if (S.jumpT < 0){
+    S.jumpBase = playerH();
+    S.onTrain = null;
+    S.jumpT = 0;
+  }
+}
+function doSlide(){
+  if (S.mode !== 'playing') return;
+  if (S.jumpT >= 0) return;
+  if (S.onTrain) return;
+  if (rampH() > 0) return;
+  if (S.slideT >= 0) return;
+  if (S.slideCd > 0) return;
+  S.slideT = 0;
+  S.slideCount++;
+}
+document.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (S.mode === 'cutscene'){ skipCutscene(); e.preventDefault(); return; }
+  if (e.key === 'ArrowLeft'){ moveLeft(); e.preventDefault(); }
+  if (e.key === 'ArrowRight'){ moveRight(); e.preventDefault(); }
+  if (e.key === 'ArrowUp' || e.key === ' '){ doJump(); e.preventDefault(); }
+  if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S'){ doSlide(); e.preventDefault(); }
+  if (e.key === 'Enter'){
+    if (S.mode === 'menu' || S.mode === 'over') startGame();
+  }
+});
+let touchStart = null;
+const wrap = $('wrap');
+wrap.addEventListener('touchstart', e => {
+  if (e.target.closest('button')) return;
+  if (S.mode === 'cutscene'){ skipCutscene(); return; }
+  const t = e.changedTouches[0];
+  touchStart = { x: t.clientX, y: t.clientY, t: performance.now() };
+  e.preventDefault();
+}, { passive: false });
+wrap.addEventListener('touchend', e => {
+  if (e.target.closest('button')){ touchStart = null; return; }
+  if (!touchStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  const dt = performance.now() - touchStart.t;
+  if (Math.max(adx, ady) < 24 && dt < 400){ doJump(); }
+  else if (adx > ady){ dx > 0 ? moveRight() : moveLeft(); }
+  else if (dy < 0){ doJump(); }
+  else if (dy > 0){ doSlide(); }
+  touchStart = null;
+  e.preventDefault();
+}, { passive: false });
+wrap.addEventListener('touchmove', e => { if (e.target.closest('button')) return; e.preventDefault(); }, { passive: false });
+wrap.addEventListener('click', e => {
+  if (e.target.closest('button')) return;
+  if (S.mode === 'cutscene') skipCutscene();
+});
+
+/* ---------- spawning (công bằng như v15.3) ---------- */
+function trainBlockedLanes(){
+  const out = [];
+  for (const l of [-1, 0, 1]){
+    if (S.entities.some(e => e.kind === 'train' && e.lane === l &&
+        ((e.z <= SPAWN_Z && e.z - e.len >= SPAWN_Z) ||
+         (e.ramp && e.z + RAMP_LEN >= SPAWN_Z && e.z <= SPAWN_Z)))) out.push(l);
+  }
+  return out;
+}
+function addRoofCoins(t){
+  for (let i = 0; i < 5; i++)
+    addEnt({ kind: 'coin', lane: t.lane, z: t.z - 2 - i * 3, h: TRAIN_H });
+  S.roofCoinCount += 5;
+}
+function addRoofCoinsFor(t){
+  if (Math.random() < (t.ramp ? 0.85 : 0.15)) addRoofCoins(t);
+}
+function addCoinLine(lane){
+  for (let i = 0; i < 5; i++)
+    addEnt({ kind: 'coin', lane, z: SPAWN_Z - i * 1.2, h: 0 });
+  S.coinLineCount += 5;
+}
+function addCoinArc(lane){
+  for (let i = 0; i < 5; i++)
+    addEnt({ kind: 'coin', lane, z: SPAWN_Z - COIN_ARC_Z[i], h: COIN_ARC_H[i] });
+  S.coinArcCount += 5;
+}
+function spawnPattern(){
+  S.patterns++;
+  const r = Math.random();
+  const lanes = [-1, 0, 1].sort(() => Math.random() - 0.5);
+  const blocked = trainBlockedLanes();
+  const free = lanes.filter(l => !blocked.includes(l));
+  const row = [];
+  const addLow = (lane) => { const e = addEnt({ kind: 'low', lane, z: SPAWN_Z }); row.push(e); return e; };
+  const addOver = (lane) => { const e = addEnt({ kind: 'over', lane, z: SPAWN_Z }); row.push(e); return e; };
+  const addTrainRow = (lane) => {
+    const e = addTrainEnt(lane, SPAWN_Z,
+      TRAIN_LEN_MIN + Math.random() * (TRAIN_LEN_MAX - TRAIN_LEN_MIN),
+      TRAIN_COLOR_LIST[Math.floor(Math.random() * TRAIN_COLOR_LIST.length)],
+      Math.random() < RAMP_CHANCE);
+    row.push(e); return e;
+  };
+  const overLane = () => {
+    const cands = free.filter(l => !S.prevRowOverLanes.includes(l));
+    return cands.length ? cands[0] : null;
+  };
+  if (S.prevRowTrains >= 2){
+    if (free.length) addCoinLine(free[0]);
+    S.prevPassable = [-1, 0, 1];
+    S.prevRowOverLanes = [];
+    S.prevRowTrains = 0;
+    S.nextGapAfter = 20 + Math.random() * 3;
+    return;
+  }
+  if (r < 0.20){
+    if (free.length){ const t = addTrainRow(free[0]); addRoofCoinsFor(t); }
+    else addLow(lanes[0]);
+  } else if (r < 0.34){
+    if (free.length >= 2){ const t = addTrainRow(free[0]); addRoofCoinsFor(t); addLow(free[1]); }
+    else if (free.length === 1){ const t = addTrainRow(free[0]); addRoofCoinsFor(t); }
+    else addLow(lanes[0]);
+  } else if (r < 0.44){
+    if (free.length >= 2){ addTrainRow(free[0]); addTrainRow(free[1]); if (free[2] !== undefined && Math.random() < 0.5) addCoinLine(free[2]); }
+    else if (free.length === 1){ addTrainRow(free[0]); }
+  } else if (r < 0.58){
+    if (free.length >= 2){ addLow(free[0]); addLow(free[1]); }
+    else if (free.length === 1){ addLow(free[0]); }
+  } else if (r < 0.70){
+    if (free.length){ addLow(free[0]); addCoinArc(free[0]); }
+  } else if (r < 0.82){
+    const ol = overLane();
+    if (ol !== null){
+      addOver(ol);
+      const cl = free.find(l => l !== ol);
+      if (cl !== undefined) addCoinLine(cl);
+    } else if (free.length){
+      addLow(free[0]);
+      if (free.length >= 2) addCoinLine(free[1]);
+    }
+  } else if (r < 0.92){
+    const ol = overLane();
+    if (ol !== null){
+      addOver(ol);
+      const other = free.find(l => l !== ol);
+      if (other !== undefined) addLow(other);
+    } else if (free.length >= 2){ addLow(free[0]); addLow(free[1]); }
+    else if (free.length === 1){ addLow(free[0]); }
+  } else {
+    if (free.length) addCoinLine(free[0]);
+  }
+  let guard = 0;
+  while (row.length > 0 && guard++ < 8){
+    const pl = passableLanes(row).filter(l => !blocked.includes(l));
+    const fair = pl.length > 0;
+    const seqOk = S.prevPassable.length === 0 ||
+      S.prevPassable.some(p => pl.some(q => Math.abs(p - q) <= 1));
+    if (fair && seqOk) break;
+    let widest = 0;
+    for (let i = 1; i < row.length; i++){
+      if (obstDims(row[i].kind).w > obstDims(row[widest].kind).w) widest = i;
+    }
+    const dropped = row.splice(widest, 1)[0];
+    removeEnt(dropped);
+  }
+  S.prevPassable = passableLanes(row).filter(l => !blocked.includes(l));
+  S.prevRowOverLanes = row.filter(o => o.kind === 'over').map(o => o.lane);
+  const trainsInRow = row.filter(o => o.kind === 'train').length;
+  S.prevRowTrains = trainsInRow;
+  S.nextGapAfter = trainsInRow > 0 ? 20 + Math.random() * 3 : 13 + Math.random() * 4;
+}
+
+/* ---------- game flow ---------- */
+let menuTrain = null;
+function startGame(){
+  clearEntities();
+  if (menuTrain){ scene.remove(menuTrain); menuTrain = null; }
+  S.mode = 'cutscene';
+  S.cutT = 0;
+  S.runTime = 0; S.speed = SPEED_BASE; S.distance = 0;
+  S.score = 0; S.coins = 0; S.mult = 1;
+  S.lane = 0; S.charX = 0;
+  S.jumpT = -1; S.jumpBase = 0; S.slideT = -1; S.slideCd = 0;
+  S.onTrain = null;
+  S.spawnAcc = 0; S.nextGap = 12;
+  S.patterns = 0; S.prevPassable = []; S.prevRowOverLanes = [];
+  S.prevRowTrains = 0; S.nextGapAfter = 13;
+  S.over = false; S.newBest = false;
+  S.trainCount = 0; S.slideCount = 0; S.roofRideCount = 0;
+  S.coinLineCount = 0; S.coinArcCount = 0; S.roofCoinCount = 0;
+  S.smoke = []; S.smokeAcc = 0;
+  menuEl.classList.add('hidden');
+  overEl.classList.add('hidden');
+  hudEl.classList.add('hidden');
+  hintEl.classList.add('hidden');
+  capEl.classList.add('hidden');
+  updateHUD();
+}
+function skipCutscene(){ if (S.mode !== 'cutscene') return; beginRun(); }
+function beginRun(){
+  S.mode = 'playing';
+  S.runTime = 0;
+  capEl.classList.add('hidden');
+  hudEl.classList.remove('hidden');
+  hintEl.classList.remove('hidden');
+  setTimeout(() => hintEl.classList.add('hidden'), 5000);
+  updateHUD();
+}
+function crashSnapshot(){
+  const near = S.entities.filter(e => e.z > -30 && e.z < 20)
+    .map(e => e.kind + '@' + e.lane + ':z' + e.z.toFixed(1) + (e.len ? '/L' + e.len.toFixed(0) : ''))
+    .join(' ');
+  return ' onTrain=' + (S.onTrain ? (S.onTrain.lane + ':z' + S.onTrain.z.toFixed(1) + '/L' + S.onTrain.len.toFixed(0)) : 'null')
+    + ' jumpT=' + S.jumpT.toFixed(2) + ' slideT=' + S.slideT.toFixed(2)
+    + ' rampH=' + rampH().toFixed(2) + ' speed=' + S.speed.toFixed(1)
+    + ' | near[' + near + ']';
+}
+function gameOver(){
+  if (S.over) return;
+  S.over = true;
+  S.mode = 'over';
+  S.newBest = S.score > S.best;
+  if (S.newBest){ S.best = S.score; saveBest(); }
+  $('finalScore').textContent = S.score;
+  $('finalCoins').textContent = S.coins;
+  $('finalDist').textContent = Math.floor(S.distance);
+  $('newBest').classList.toggle('hidden', !S.newBest);
+  bestOverEl.textContent = S.best;
+  bestMenuEl.textContent = S.best;
+  bestHudEl.textContent = S.best;
+  hudEl.classList.add('hidden');
+  hintEl.classList.add('hidden');
+  capEl.classList.add('hidden');
+  overEl.classList.remove('hidden');
+}
+function updateHUD(){
+  scoreEl.textContent = S.score;
+  multEl.textContent = 'x' + S.mult;
+  coinsEl.textContent = S.coins;
+  bestHudEl.textContent = S.best;
+}
+$('startBtn').addEventListener('click', startGame);
+$('againBtn').addEventListener('click', startGame);
+bestMenuEl.textContent = S.best;
+applyLang();
+
+/* ---------- world scroll (tà vẹt + mây trôi) ---------- */
+function scrollWorld(dz){
+  for (let i = 0; i < sleeperZ.length; i++){
+    sleeperZ[i] += dz;
+    if (sleeperZ[i] > 20) sleeperZ[i] -= SLEEPER_SPAN;
+  }
+  updateSleepers();
+  for (const c of clouds){
+    c.position.x += dz * 0.02;
+    if (c.position.x > 34) c.position.x = -34;
+  }
+}
+
+/* ---------- update ---------- */
+function update(dt){
+  S.time += dt;
+  if (S.mode === 'menu'){
+    scrollWorld(2 * dt);
+    return;
+  }
+  if (S.mode === 'cutscene'){
+    S.cutT += dt;
+    scrollWorld(S.speed * (S.cutT < CUT_B ? 0.28 : 1) * dt);
+    if (S.cutT >= CUT_DUR) beginRun();
+    return;
+  }
+  if (S.mode !== 'playing') return;
+
+  S.runTime += dt;
+  S.speed = Math.min(SPEED_MAX, SPEED_BASE + S.runTime * SPEED_RAMP);
+  S.distance += S.speed * dt;
+  scrollWorld(S.speed * dt);
+  S.mult = Math.min(MULT_CAP, 1 + Math.floor(S.distance / MULT_EVERY_M));
+  S.score = Math.floor(S.distance * S.mult) + S.coins * 10;
+
+  const targetX = S.lane * LANE_X;
+  S.charX += (targetX - S.charX) * Math.min(1, dt * 22);
+  if (Math.abs(targetX - S.charX) < 0.02) S.charX = targetX;
+
+  if (wolfVisible()){
+    S.smokeAcc += dt * 40;
+    while (S.smokeAcc >= 1){
+      S.smokeAcc -= 1;
+      const p = smokePool.find(q => q.life <= 0);
+      if (p){
+        p.life = 0.0001; p.max = 0.55 + Math.random() * 0.3;
+        p.s.visible = true;
+        p.s.position.set(S.charX + (Math.random() - 0.5) * 1.1, 0.15, WOLF_Z_CFG + Math.random() * 0.3);
+        p.s.scale.set(0.3, 0.3, 1);
+        p.s.material.opacity = 0.32;
+      }
+    }
+  }
+  for (const p of smokePool){
+    if (p.life <= 0) continue;
+    p.life += dt;
+    if (p.life >= p.max){ p.life = 0; p.s.visible = false; continue; }
+    const f = p.life / p.max;
+    p.s.position.z += S.speed * 0.9 * dt;
+    p.s.scale.set(0.3 + f * 0.6, 0.3 + f * 0.6, 1);
+    p.s.material.opacity = 0.32 * (1 - f);
+  }
+
+  if (S.jumpT >= 0){
+    S.jumpT += dt;
+    const bal = JUMP_V * S.jumpT - 0.5 * JUMP_G * S.jumpT * S.jumpT;
+    if (bal <= 0 && S.jumpT > 0.1){
+      S.jumpT = -1;
+      const t = trainUnderPlayer();
+      if (t) landOnTrain(t);
+      S.jumpBase = 0;
+    }
+  }
+  if (S.slideT >= 0){
+    S.slideT += dt;
+    if (S.slideT >= SLIDE_DUR){ S.slideT = -1; S.slideCd = SLIDE_CD; }
+  }
+  if (S.slideCd > 0) S.slideCd -= dt;
+  if (S.slideT >= 0 && rampH() > 0){ S.slideT = -1; S.slideCd = 0; }
+
+  if (S.onTrain){
+    const t = trainUnderPlayer();
+    if (!t) S.onTrain = null;
+    else if (t !== S.onTrain) S.onTrain = t;
+    if (S.onTrain && S.onTrain.z - S.onTrain.len > 0) S.onTrain = null;
+  }
+
+  S.spawnAcc += S.speed * dt;
+  if (S.spawnAcc >= S.nextGap){
+    S.spawnAcc = 0;
+    spawnPattern();
+    S.nextGap = S.nextGapAfter;
+  }
+
+  const dz = S.speed * dt;
+  for (const e of S.entities){
+    e.z += dz;
+    e.group.position.z = e.z;
+    if (e.kind === 'coin') e.group.rotation.y += dt * 3;
+  }
+  for (const e of S.entities.slice()){
+    if (e.kind === 'train' ? (e.z - e.len > 15) : (e.z > 15)) removeEnt(e);
+  }
+
+  const pH = playerH();
+  const sliding = isSliding();
+  for (const e of S.entities){
+    if (e.taken || e.passed) continue;
+    if (e.kind === 'train'){
+      if (e.z < -HIT_Z || e.z - e.len > 0) continue;
+      if (S.onTrain) continue;
+      if (S.lane !== e.lane) continue;
+      if (pH >= TRAIN_H - 0.04){ landOnTrain(e); }
+      else { S.lastHit = 'train lane=' + e.lane + ' z=' + e.z.toFixed(1) + ' len=' + e.len + ' pH=' + pH.toFixed(2) + ' onTrain=' + S.onTrain + ' myLane=' + S.lane + crashSnapshot(); gameOver(); return; }
+      continue;
+    }
+    if (Math.abs(e.z) > HIT_Z) continue;
+    if (e.kind === 'coin'){
+      if (e.lane !== S.lane) continue;
+      if (Math.abs(pH - (e.h || 0)) < COIN_PICKUP){
+        e.taken = true; e.group.visible = false;
+        S.coins++; updateHUD();
+      }
+      continue;
+    }
+    const d = obstDims(e.kind);
+    if (Math.abs(S.charX - e.lane * LANE_X) >= d.w / 2 + CHAR_HW) continue;
+    if (e.kind === 'low' || e.kind === 'over'){
+      if (e.z > 0){ e.passed = true; continue; }
+    }
+    if (S.onTrain) continue;
+    if (e.kind === 'low'){
+      if (pH < LOW_H - 0.06){ S.lastHit = 'low lane=' + e.lane + ' z=' + e.z.toFixed(1) + ' pH=' + pH.toFixed(2) + ' jumpT=' + S.jumpT.toFixed(2) + ' myLane=' + S.lane + ' charX=' + S.charX.toFixed(2) + crashSnapshot(); gameOver(); return; }
+      e.passed = true;
+    } else if (e.kind === 'over'){
+      if (sliding){ e.passed = true; }
+      else { S.lastHit = 'over lane=' + e.lane + ' z=' + e.z.toFixed(1) + ' sliding=' + sliding + ' slideT=' + S.slideT.toFixed(2) + ' slideCd=' + S.slideCd.toFixed(2) + ' pH=' + pH.toFixed(2) + ' myLane=' + S.lane + crashSnapshot(); gameOver(); return; }
+    }
+  }
+  updateHUD();
+}
+
+/* ---------- sprites: nhân vật / sói / cutscene ---------- */
+let charFrame = -1, charSliding = false, wolfFrame = -1;
+function setCharFrame(i){
+  if (charFrame === i && !charSliding) return;
+  charFrame = i; charSliding = false;
+  charSprite.material.map = TEX.run[i];
+  charSprite.material.needsUpdate = true;
+  charSprite.material.rotation = 0;
+  charSprite.scale.set(CHAR_H * RUN_ASPECT[i], CHAR_H, 1);
+}
+function setCharSlide(){
+  if (charSliding) return;
+  charSliding = true; charFrame = -1;
+  charSprite.material.map = TEX.slide;
+  charSprite.material.needsUpdate = true;
+  charSprite.material.rotation = 0;
+  charSprite.scale.set(0.85 * SLIDE_ASPECT, 0.85, 1);
+}
+function setWolfFrame(i){
+  if (wolfFrame === i) return;
+  wolfFrame = i;
+  wolfSprite.material.map = TEX.wolfRun[i];
+  wolfSprite.material.needsUpdate = true;
+  wolfSprite.scale.set(WOLF_H * WOLF_ASPECT[i], WOLF_H, 1);
+}
+function setCutBeca(tex, aspect, h){
+  cutBeca.material.map = tex;
+  cutBeca.material.needsUpdate = true;
+  cutBeca.scale.set(h * aspect, h, 1);
+}
+function showCaption(key, bang){
+  const s = STR[lang];
+  const pair = s[key];
+  capViEl.textContent = pair[0];
+  capEnEl.textContent = pair[1];
+  capBang.style.display = bang ? 'block' : 'none';
+  capEl.classList.remove('hidden');
+}
+function syncSprites(){
+  // camera lerp mượt theo làn — KHÔNG rung, KHÔNG giật.
+  // follow 0.45 + look 0.55: nhân vật ở làn bên vẫn trong khung (~0.77),
+  // đồng thời tàu ở làn đối diện phía trước vẫn thấy được.
+  const targetCamX = S.charX * 0.45;
+  camX += (targetCamX - camX) * 0.08;
+  if (Math.abs(targetCamX - camX) < 0.005) camX = targetCamX;
+  const targetLookX = S.charX * 0.55;
+  lookX += (targetLookX - lookX) * 0.08;
+  if (Math.abs(targetLookX - lookX) < 0.005) lookX = targetLookX;
+  placeCamera();
+
+  if (S.mode === 'menu'){
+    // phông nền menu: sói ngủ ló ra bên phải (DOM hero đã là bé cá nên
+    // ẩn sprite 3D của cô — tránh 2 bé cá chồng nhau)
+    cutWolfSit.visible = true;
+    cutWolfSit.position.set(2.0, 1.75 / 2, -6.5);
+    cutBeca.visible = false; cutWolf.visible = false;
+    wolfSprite.visible = false; wolfBlob.visible = false;
+    charSprite.visible = false; charBlob.visible = false;
+    capEl.classList.add('hidden');
+    return;
+  }
+  if (S.mode === 'cutscene'){
+    const t = S.cutT;
+    const ease = p => p * p * (3 - 2 * p);
+    charSprite.visible = false; charBlob.visible = false;
+    wolfSprite.visible = false; wolfBlob.visible = false;
+    if (t < CUT_A){
+      cutWolfSit.visible = true;
+      cutWolfSit.position.set(-1.8, 1.75 / 2, -5);
+      cutWolf.visible = false;
+      const p = ease(Math.min(1, t / CUT_A));
+      const bx = 5.5 + (1.2 - 5.5) * p;
+      cutBeca.visible = true;
+      setCutBeca(TEX.front, FRONT_ASPECT, CHAR_H);
+      cutBeca.position.set(bx, CHAR_H / 2, -5);
+      showCaption('capA', false);
+    } else if (t < CUT_B){
+      cutWolfSit.visible = true;
+      cutWolfSit.position.set(-1.8, 1.75 / 2, -5);
+      cutWolf.visible = false;
+      cutBeca.visible = true;
+      setCutBeca(TEX.front, FRONT_ASPECT, CHAR_H);
+      cutBeca.position.set(1.2, CHAR_H / 2, -5);
+      showCaption('capB', true);
+    } else if (t < CUT_C){
+      cutWolfSit.visible = false;
+      cutWolf.visible = true;
+      const p = ease(Math.min(1, (t - CUT_B) / (CUT_C - CUT_B)));
+      const bounce = Math.sin(p * Math.PI) * 0.35;
+      cutWolf.material.map = TEX.wolfRun[0];
+      cutWolf.material.needsUpdate = true;
+      cutWolf.scale.set(WOLF_H * WOLF_ASPECT[0], WOLF_H, 1);
+      cutWolf.position.set(-1.8, WOLF_H / 2 + bounce, -5);
+      cutBeca.visible = true;
+      const fi = Math.floor(t * 12) % 4;
+      setCutBeca(TEX.run[fi], RUN_ASPECT[fi], CHAR_H);
+      cutBeca.position.set(1.2 + (6.5 - 1.2) * p, CHAR_H / 2, -5);
+      showCaption('capC', false);
+    } else {
+      cutWolfSit.visible = false; cutWolf.visible = false; cutBeca.visible = false;
+      const fi = Math.floor(t * 14) % 4;
+      setCharFrame(fi);
+      charSprite.visible = true;
+      charSprite.position.set(0, CHAR_H / 2 + Math.sin(t * 14) * 0.03, 0);
+      charBlob.visible = true;
+      charBlob.position.set(0.06, 0.02, 0.1);
+      setWolfFrame(fi);
+      wolfSprite.visible = true;
+      wolfSprite.material.opacity = 1;
+      wolfSprite.position.set(0, WOLF_H / 2 + Math.sin(t * 14) * 0.04, WOLF_Z_CFG);
+      wolfBlob.visible = true;
+      wolfBlob.position.set(0.08, 0.02, WOLF_Z_CFG + 0.1);
+      showCaption('capD', false);
+    }
+    return;
+  }
+  // playing / over
+  cutWolfSit.visible = false; cutBeca.visible = false; cutWolf.visible = false;
+  capEl.classList.add('hidden');
+  if (S.mode === 'over'){
+    // panel DOM đã có sói + bé cá khóc — ẩn sprite 3D (như v15.1 ẩn cá trên canvas)
+    charSprite.visible = false; charBlob.visible = false;
+    wolfSprite.visible = false; wolfBlob.visible = false;
+    return;
+  }
+  // playing
+  const pH = playerH();
+  const norm = speedNorm();
+  const bobF = 9 + S.speed * 0.05;
+  const bob = Math.sin(S.time * bobF) * (0.04 + norm * 0.03);
+  const cyclePhase = (S.runTime * runFps() / 4) % 1;
+  const lunge = Math.max(0, Math.sin(cyclePhase * Math.PI * 2)) * 0.05;
+  const surfaceH = S.onTrain ? TRAIN_H : (S.jumpT >= 0 ? 0 : rampH());
+  const shScale = Math.max(0.35, 1 - (pH - surfaceH) / 2.2);
+  charSprite.visible = true;
+  if (isSliding()){
+    setCharSlide();
+    charSprite.position.set(S.charX, 0.85 / 2, 0);
+    charSprite.material.rotation = 0;
+  } else {
+    setCharFrame(runFrameIndex());
+    charSprite.position.set(S.charX, pH + bob - lunge + CHAR_H / 2, 0);
+    const lean = 0.08 + norm * 0.14 + (wolfVisible() ? 0.05 : 0);
+    charSprite.material.rotation = Math.sin(S.time * bobF) * 0.05 + lean;
+  }
+  charBlob.visible = true;
+  charBlob.position.set(S.charX + 0.06, surfaceH + 0.02, 0.1);
+  charBlob.scale.set(1.1 * shScale, 0.9 * shScale, 1);
+  charBlob.material.opacity = 0.9 * shScale;
+
+  const wa = wolfAlpha();
+  wolfSprite.visible = wa > 0;
+  wolfBlob.visible = wa > 0;
+  if (wa > 0){
+    setWolfFrame(wolfFrameIndex());
+    const wob = Math.sin(S.time * bobF) * 0.04;
+    wolfSprite.position.set(S.charX, WOLF_H / 2 + wob, WOLF_Z_CFG);
+    wolfSprite.material.opacity = wa;
+    wolfBlob.position.set(S.charX + 0.08, 0.02, WOLF_Z_CFG + 0.1);
+    wolfBlob.material.opacity = 0.9 * wa;
+  }
+}
+
+/* ---------- main loop ---------- */
+let frozen = P.get('freeze') === '1';
+let lastT = performance.now();
+let firstFrame = true;
+function loop(now){
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+  if (!frozen) update(dt);
+  syncSprites();
+  renderer.render(scene, camera);
+  if (firstFrame){
+    firstFrame = false;
+    window.__beca3dReady = true;
+    document.title = 'Bé Cá Chạy 3D — READY';
+  }
+  requestAnimationFrame(loop);
+}
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
+window.addEventListener('error', (e) => {
+  document.title = 'ERR: ' + (e.message || 'unknown');
+});
+
+/* ---------- tàu đỗ ở menu (phông nền) ---------- */
+menuTrain = buildTrainGroup({ kind: 'train', lane: -1, z: -28, len: 18, color: 'red', ramp: false });
+menuTrain.position.set(-LANE_X, 0, -28);
+scene.add(menuTrain);
+
+/* ---------- staging chụp ảnh (?stage=play|roof|over|chase|slide|jump|ramp) ---------- */
+function stagePlay(){
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 10;
+  S.score = 120; S.coins = 5; S.distance = 1200; updateHUD();
+  addTrainEnt(1, -12, 22, 'red', false);
+  addTrainEnt(0, -38, 20, 'orange', false);
+  addEnt({ kind: 'low', lane: -1, z: -28 });
+  for (let i = 0; i < 5; i++) addEnt({ kind: 'coin', lane: -1, z: -34 - i * 1.2, h: 0 });
+  addEnt({ kind: 'over', lane: 1, z: -55 });
+}
+function stageRoof(){
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 10;
+  S.score = 340; S.coins = 12; S.distance = 3400; updateHUD();
+  const rt = addTrainEnt(0, 2, 25, 'red', false);
+  S.onTrain = rt;
+}
+function stageRamp(){
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 10;
+  S.score = 180; S.coins = 8; S.distance = 1800; updateHUD();
+  addTrainEnt(0, -12, 20, 'red', true);
+}
+function stageOver(){
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 10;
+  addTrainEnt(0, -3, 20, 'red', false);
+  S.score = 250; S.coins = 7; S.distance = 2500;
+  gameOver();
+}
+function stageChase(){
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 2;
+  // chạy thử 0.5s để khói bụi sói kịp bay lên (không thì ảnh tĩnh không có khói);
+  // điểm HUD gán SAU vòng chạy thử vì update() tính lại điểm từ quãng đường
+  for (let i = 0; i < 30; i++) update(1 / 60);
+  S.score = 95; S.coins = 3; S.distance = 95; updateHUD();
+}
+function stageSlide(){
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 10;
+  S.score = 210; S.coins = 9; S.distance = 2100; updateHUD();
+  addEnt({ kind: 'over', lane: 0, z: -8 });
+  S.slideT = 0.4;
+}
+function stageJump(){
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 10;
+  S.score = 260; S.coins = 11; S.distance = 2600; updateHUD();
+  addTrainEnt(0, -2, 22, 'blue', false);
+  S.jumpT = 0.55; S.jumpBase = 0;
+}
+function stageCutA(){ startGame(); S.cutT = 0.6; }
+function stageCutC(){ startGame(); S.cutT = 2.2; }
+const STAGES = { play: stagePlay, roof: stageRoof, ramp: stageRamp, over: stageOver,
+                 chase: stageChase, slide: stageSlide, jump: stageJump,
+                 cutA: stageCutA, cutC: stageCutC };
+if (P.get('stage') && STAGES[P.get('stage')]) STAGES[P.get('stage')]();
+if (P.get('lane') && S.mode === 'playing'){
+  const l = Math.max(-1, Math.min(1, parseInt(P.get('lane'), 10) || 0));
+  S.lane = l; S.charX = l * LANE_X;
+  // đặt camera đúng vị trí settle luôn (ảnh freeze không có đủ frame cho lerp)
+  camX = l * LANE_X * 0.45; lookX = l * LANE_X * 0.55;
+}
+if (P.get('freeze') === '1') frozen = true;
+
+/* ---------- autotest (?autotest=giây): bot chơi thử bằng luật thật —
+   chỉ chạy khi có param, để kiểm chứng vòng chơi/spawn/va chạm/game over.
+   Bot: đổi sang làn đi được của hàng gần nhất (dùng lanePassable của
+   game), nhảy qua rào thấp, trượt dưới rào cao, nhảy lên nóc tàu. */
+function laneBlockedNow(lane){
+  // làn đang có tàu (thân tàu đang bao phủ vị trí người chơi) hoặc
+  // rào thấp/thanh trên cao sắp chạm — KHÔNG được đổi vào làn này
+  for (const e of S.entities){
+    if (e.lane !== lane) continue;
+    if (e.kind === 'train' && e.z > -2 && e.z - e.len < 2) return true;
+    if ((e.kind === 'low' || e.kind === 'over') && Math.abs(e.z) < 3) return true;
+  }
+  return false;
+}
+function autotestBot(){
+  // chỉ xét chướng ngại vật CÒN Ở PHÍA TRƯỚC (z < 0) — tàu đã qua mặt
+  // (z > 0) mà lọt vào sẽ thành "hàng gần nhất" và che mất hàng thật
+  const rows = S.entities.filter(e => e.kind !== 'coin' && e.z > -40 && e.z < 0);
+  if (!rows.length) return;
+  // hàng GẦN NHẤT là hàng có z LỚN nhất (gần người chơi nhất, z âm = phía trước)
+  const zNear = Math.max(...rows.map(e => e.z));
+  const row = rows.filter(e => Math.abs(e.z - zNear) < 6);
+  const pl = passableLanes(row).filter(l => !laneBlockedNow(l));
+  if (!pl.length) return;
+  // thời điểm hành động tỉ lệ với tốc độ: nhảy/trượt sao cho đỉnh nhảy
+  // (0.56s) / giữa nhịp trượt rơi đúng lúc chướng ngại vật tới.
+  // nhảy rào thấp: cửa sổ dist ∈ (0.04, 1.08)×speed; nhảy lên nóc tàu:
+  // cửa sổ hẹp hơn, dist ∈ (0.40, 0.73)×speed (chân phải ≥3.16 khi mặt
+  // sau tàu tới). Ngoài cửa sổ → né sang làn trống thay vì nhảy muộn.
+  const react = S.speed * 0.55;
+  const me = row.find(e => e.lane === S.lane && e.kind !== 'coin');
+  const freeLanes = [-1, 0, 1].filter(l => !row.some(e => e.lane === l && e.kind !== 'coin') && !laneBlockedNow(l));
+  const nearestFree = freeLanes.length ? freeLanes.reduce((a, b) => Math.abs(a - S.lane) < Math.abs(b - S.lane) ? a : b) : null;
+  // di chuyển tối đa 1 làn về phía target, chỉ khi làn kề an toàn ngay lúc này
+  const stepToward = (target) => {
+    if (target === S.lane) return false;
+    const step = target < S.lane ? S.lane - 1 : S.lane + 1;
+    if (laneBlockedNow(step)) return false;
+    if (step < S.lane) moveLeft(); else moveRight();
+    return true;
+  };
+  // 1. làn hiện tại không đi được → đổi sang làn đi được gần nhất
+  if (!pl.includes(S.lane)){
+    const target = pl.reduce((a, b) => Math.abs(a - S.lane) < Math.abs(b - S.lane) ? a : b);
+    if (stepToward(target)) return;
+    // không đổi được (làn kề bị chặn) → ở lại, xử lý chướng ngại vật bên dưới
+    if (!me) return;
+  }
+  if (!me) return;
+  const dist = -me.z;
+  const canJump = S.jumpT < 0, canSlide = S.slideT < 0 && S.slideCd <= 0;
+  // nhìn trước: nếu nhảy qua rào thấp mà hàng sau (≤30 đơn vị) có thanh
+  // trên cao cùng làn thì sẽ kẹt giữa không trung (không trượt được khi
+  // đang nhảy) → né sang làn trống thay vì nhảy; tương tự cho trượt
+  const threatBehind = (kind) => S.entities.some(e => e.kind === kind && e.lane === S.lane && e.z < me.z - 3 && e.z > me.z - 30);
+  if (me.kind === 'low'){
+    if (threatBehind('over') && nearestFree !== null && stepToward(nearestFree)) return;
+    if (canJump && dist <= react && dist > react * 0.2){ doJump(); return; }
+    if (dist < react && nearestFree !== null && stepToward(nearestFree)) return;
+    if (canJump && dist <= react) doJump();
+  } else if (me.kind === 'over'){
+    if (threatBehind('low') && nearestFree !== null && stepToward(nearestFree)) return;
+    if (canSlide && dist <= react && dist > react * 0.2){ doSlide(); return; }
+    if (dist < react && nearestFree !== null && stepToward(nearestFree)) return;
+    if (canSlide && dist <= react) doSlide();
+  } else if (me.kind === 'train'){
+    if (S.onTrain) return; // đang trên nóc, cứ chạy
+    if (canJump && dist <= react && dist > react * 0.8){ doJump(); return; }
+    if (dist < react && nearestFree !== null && stepToward(nearestFree)) return;
+    // KHÔNG nhảy muộn: nhảy khi tàu đã quá gần thì chân chưa đủ cao
+    // (cần ≥3.16) → đâm chắc; né là lựa chọn duy nhất còn lại
+  }
+}
+if (P.get('autotest')){
+  const secs = parseFloat(P.get('autotest') || '60');
+  const steps = Math.round(secs * 60);
+  startGame(); skipCutscene();
+  let crashedAt = -1;
+  for (let i = 0; i < steps; i++){
+    if (S.mode !== 'playing'){ crashedAt = S.runTime; break; }
+    autotestBot();
+    update(1 / 60);
+  }
+  const res = { mode: S.mode, runTime: +S.runTime.toFixed(2), score: S.score, coins: S.coins,
+    distance: Math.floor(S.distance), mult: S.mult, patterns: S.patterns, trains: S.trainCount,
+    roofRides: S.roofRideCount, slides: S.slideCount, crashedAt, lastHit: S.lastHit || '' };
+  const div = document.createElement('div');
+  div.id = 'autotest';
+  div.textContent = 'AUTOTEST ' + JSON.stringify(res);
+  document.body.appendChild(div);
+  document.title = 'AUTOTEST ' + S.mode + ' score=' + S.score;
+}
+
+/* ---------- test hook ---------- */
+window.__becaRun3d = {
+  S, start: startGame, skipCutscene, over: gameOver,
+  moveLeft, moveRight, jump: doJump, slide: doSlide,
+  spawnPattern, trainUnderPlayer, landOnTrain,
+  jumpHeight, jumpApex, isSliding, playerH, rampH,
+  runFrame: runFrameIndex, wolfFrame: wolfFrameIndex,
+  wolfVisible, wolfAlpha,
+  obstDims, lanePassable, passableLanes,
+  layout(){ return { LANE_X, CHAR_H, TRAIN_H, TRAIN_W, LOW_H, LOW_VIS_H, OVER_H, OVER_GAP,
+    COIN_R, SLIDE_H, JUMP_APEX: jumpApex(), SPEED_BASE, SPEED_MAX, SPAWN_Z, WOLF_H,
+    WOLF_Z: WOLF_Z_CFG, CAM_Y, CAM_Z, LOOK_Y, LOOK_Z, FOV, MULT_CAP, RAMP_LEN, RAMP_TOP }; },
+  assets(){ return Object.assign({}, texReady); },
+  setSpeed(v){ S.speed = v; },
+  step(dt){ update(dt); syncSprites(); renderer.render(scene, camera); },
+  stage(name){ if (STAGES[name]) STAGES[name](); },
+  freeze(v){ frozen = !!v; },
+};
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
