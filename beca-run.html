@@ -131,7 +131,7 @@
     <div class="howto">
       <span class="k">◀ ▶</span> hoặc vuốt ngang: đổi làn<br>
       <span class="k">▲</span> / chạm màn hình: nhảy qua rào chắn<br>
-      Lượm <b>★ sao vàng</b> to để cộng điểm!<br>
+      Lượm <b>★ sao vàng</b> để cộng điểm!<br>
       7 giây đầu sói đuổi ngay sau lưng — đừng để bị bắt!
     </div>
     <button class="btn" id="startBtn">CHẠY THÔI! ▶</button>
@@ -140,7 +140,7 @@
 
   <div id="gameover" class="overlay hidden">
     <div class="catch">
-      <img class="wolf" src="art/wolf-run.png" alt="Sói">
+      <img class="wolf" src="art/wolf-run1.png" alt="Sói">
       <img class="cry" src="art/beca-cry.png" alt="Bé cá khóc">
     </div>
     <div class="big">SÓI BẮT ĐƯỢC CÁ RỒI!</div>
@@ -160,24 +160,28 @@
 <script>
 "use strict";
 /* ============================================================
-   BÉ CÁ CHẠY — v8: the wolf chase
+   BÉ CÁ CHẠY — v9: the beach rework
    Subway Surfers-style endless runner, 3 lanes, camera behind
-   the character, wide brown dirt ground filling the whole screen
+   the character, low-poly beach ground filling the whole screen
    edge-to-edge. A real race, not a jog.
    - Intro cutscene: bé cá steps on the sleeping wolf's tail,
      the wolf wakes up angry — then the chase is on.
-   - Wolf chase: the wolf runs right behind bé cá for the first
-     ~7 s of every run, then gives up and fades away.
+   - Wolf chase: a real 4-frame run cycle (wolf-run1..4.png, rear
+     view, all 4 legs articulating) runs CLOSE behind bé cá for
+     the first ~7 s of every run, kicking up smoke/dust from its
+     paws, then gives up and fades away. Nearly touching her back.
    - Game over: the wolf CATCHES her — crying bé cá on screen.
    - ONLY obstacle: the low 3D box-beam barrier (1.2 lanes wide).
      Dodge by switching lanes OR jump over it. No signs, no ramps,
      no sliding — those mechanics are gone entirely.
-   - Gold stars (as big as bé cá herself) replace the old coins.
+   - Gold stars, now about HALF bé cá's height (95 local units),
+     plain modest gold — no glow, no glint, no pulse.
    - Turns: the road bends left/right — horizon and lanes shift,
      with a big turn arrow. Rope swings: grab a rope over a gap
      and swing across (automatic, always succeeds).
-   - Higher jump (~1.5x apex), faster lane switching, new
-     realistic forest bg (horizon re-measured from the new art).
+   - Higher jump (~1.34x v8 apex), faster lane switching, new
+     low-poly beach bg (horizon re-measured from the new art:
+     sea meets sand at 0.45 — the ground is SAND now).
    Ground streaks rush past so she reads as running FORWARD.
    No screen shake anywhere (gentle motion only).
    ============================================================ */
@@ -196,27 +200,46 @@ const LANE_LERP = 22;       // lane-change smoothing rate (was 10 — laggy)
 /* The ONLY obstacle: a low 3D box-beam barrier, 1.2 lanes wide, so a
    lane switch always dodges it — and it is low enough to jump over.
    Drawn size = collision size: what you see is what kills you.
-   barrier-low-3d.png is 968x180 (aspect 5.378), so a 1.2-lane-wide
-   beam is ~28 local units tall on iPhone — a proper hurdle. */
+   barrier-low-3d.png is 931x320 (aspect 2.909), so a 1.2-lane-wide
+   beam is ~49 local units tall on iPhone (v8 was ~28) — a proper
+   hurdle, still well below the jump apex. */
 const LOW_W_LANES = 1.2;      // barrier width, in lane units
 const LOW_W_LANES_MAX = 1.3;  // (kept in the fairness cap, see spawnPattern)
-/* Gold stars: as big as bé cá's whole body (185 local units tall),
-   so they are impossible to miss. Pickup window scaled to the star. */
-const STAR_H_BASE = 185;      // star height, local units — = character height
-const STAR_PICKUP_BASE = 100; // star pickup window, local units (was 58 for coins)
+/* Gold stars: about HALF bé cá's height (95 local units) — modest,
+   plain gold, no glow. Pickup window scaled down proportionally
+   from v8's 100 (for a 185-unit star) to 50. */
+const STAR_H_BASE = 95;       // star height, local units — ~half character height
+const STAR_PICKUP_BASE = 50;  // star pickup window, local units (was 100 for the big star)
 const STREAK_N = 14;          // ground streaks rushing past (forward-motion cue)
 const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units
-/* BG_HORIZON_FRAC re-measured from the NEW bg-3d.png (800x1600):
-   centre column runs turquoise sea down to y≈625, then dirt begins
-   (y≈630) — 630/1600 = 0.394. The old 0.51 belonged to the old art
-   and would have parked distant objects on the sea. */
-const BG_HORIZON_FRAC = 0.39;
-/* Jump: apex was 97.2 local units (V=540, G=1500). 1.5x apex = 145.8,
-   so V = sqrt(2*G*145.8) ≈ 661 with G unchanged — same floaty feel,
-   clearly higher. */
-const JUMP_V_BASE = 661;
+/* BG_HORIZON_FRAC re-measured from the NEW bg-3d.png (800x1600,
+   low-poly beach) — measured with PIL across 11 columns: the
+   turquoise sea ends and the sand begins at y≈720/1600 = 0.45
+   on almost every column (median 0.453; a central sandbar reaches
+   up to 0.31, one column 0.51). 0.45 puts the horizon on SAND
+   across the whole width, so distant objects sit on the beach,
+   never on the sea. The old 0.39 belonged to the old forest art. */
+const BG_HORIZON_FRAC = 0.45;
+/* Jump: v8 apex was 145.8 local units (V=661, G=1500). 1.34x apex =
+   ~195 local units, so V = sqrt(2*G*195) ≈ 765 with G unchanged —
+   same gravity feel, clearly higher, and comfortably above the
+   taller ~49-unit barriers. */
+const JUMP_V_BASE = 765;
 const JUMP_G_BASE = 1500;
-const OLD_JUMP_APEX = 97.2;   // v7 apex, local units — for the test hook
+const OLD_JUMP_APEX = 145.8;  // v8 apex, local units — for the test hook
+/* Wolf chase geometry (local units; U scales them to the screen).
+   The wolf runs CLOSE behind bé cá: its paws sit only
+   WOLF_FEET_LIFT above her feet line on the ground plane, and its
+   nose (centre x) sits WOLF_X_OFF to her left — just 8 local units
+   from her back edge, nearly touching. It stays slightly higher
+   (further away in pseudo-3D) and smaller than her, as in v8, but
+   the gap is now tiny instead of a wide berth. */
+const WOLF_W = 140;           // wolf display width, local units (fixed for all 4 frames)
+const WOLF_FEET_LIFT = 30;    // paws above bé cá's feet line = the chase gap (~1 cm on iPhone)
+const WOLF_X_OFF = -70;       // wolf centre x relative to bé cá (left, peeking from behind her)
+/* Wolf smoke: dust puffs kicked up by the paws while chasing. */
+const SMOKE_RATE = 40;        // puffs spawned per second during the chase
+const SMOKE_MAX = 90;         // particle cap
 /* Wolf chase: visible for the first ~7 s of each run, fading out
    over the last second. */
 const WOLF_CHASE_T = 7;
@@ -276,8 +299,21 @@ function imgReady(img){ return img.complete && img.naturalWidth > 0; }
 const bgImg = loadImg('art/bg-3d.png');
 const imgStar = loadImg('art/star-3d.png');
 const imgLow = loadImg('art/barrier-low-3d.png');
-/* the wolf: running (chase + game over) and sitting/sleeping (cutscene) */
-const imgWolfRun = loadImg('art/wolf-run.png');
+/* the wolf: a real 4-frame run cycle, REAR view (facing away from
+   the camera, forward toward bé cá's back), all 4 legs articulating.
+   The frames have different widths (653/913/664/830 px) — they are
+   drawn at a FIXED display width (WOLF_W) with each frame's own
+   aspect, feet anchored, so the wolf's body bulk stays steady
+   (torso width varies only ~16% between frames) and the height
+   variation reads as the gallop's stretch. The old single-frame
+   side-view wolf-run.png is NOT loaded any more. */
+const wolfFrames = [
+  loadImg('art/wolf-run1.png'),  // frame 1: gathered
+  loadImg('art/wolf-run2.png'),  // frame 2: extended (widest, 913 px)
+  loadImg('art/wolf-run3.png'),  // frame 3: gathered, other phase
+  loadImg('art/wolf-run4.png'),  // frame 4: extended
+];
+/* sitting/sleeping wolf (cutscene) */
 const imgWolfSit = loadImg('art/wolf-sit.png');
 /* crying bé cá, front view — the game-over moment */
 const imgCry = loadImg('art/beca-cry.png');
@@ -319,6 +355,8 @@ const S = {
   turnCount: 0,           // bends started (test hook)
   ropeCount: 0,           // rope sections spawned (test hook)
   swingCount: 0,          // swings completed-started (test hook)
+  smoke: [],              // dust puffs kicked up by the wolf's paws
+  smokeAcc: 0,            // smoke spawn accumulator
 };
 try { S.best = parseInt(localStorage.getItem('becaRunBest') || '0', 10) || 0; } catch(e) { S.best = 0; }
 function saveBest(){ try { localStorage.setItem('becaRunBest', String(S.best)); } catch(e){} }
@@ -333,6 +371,34 @@ function runFrameIndex(){
   if (S.jumpT >= 0) return 1; // tucked legs while jumping
   // ~13 fps at base speed, ~22 fps at max
   return Math.floor(S.runTime * runFps()) % 4;
+}
+/* The wolf cycles at exactly the same rate as bé cá's run cycle,
+   so the two animals read as running together — one stride each. */
+function wolfFrameIndex(){
+  if (S.mode !== 'playing') return 0;
+  return Math.floor(S.runTime * runFps()) % 4;
+}
+/* Where the wolf is drawn during the chase: close behind bé cá,
+   slightly higher (further away) and offset left so it peeks out
+   from behind her — drawn BEFORE her, so she occludes its middle. */
+function wolfGeom(){
+  const bob = Math.sin(S.time * (9 + S.speed * 0.05)) * 4 * U;
+  return {
+    x: S.charX + WOLF_X_OFF * U,
+    feetY: PLAYER_Y - WOLF_FEET_LIFT * U + bob,
+    w: WOLF_W * U,
+  };
+}
+/* The chase gap, measured two ways (local units and screen px):
+   - ground: paws-to-feet on the ground plane (WOLF_FEET_LIFT)
+   - nose: wolf's nose (centre x) to bé cá's back edge, horizontally */
+function wolfGap(){
+  const becaHalfW = CHAR_H_BASE * 0.67 / 2; // bé cá half-width, LOCAL units (603x900 frame)
+  const noseLocal = Math.abs(WOLF_X_OFF) - becaHalfW;
+  return {
+    groundLocal: WOLF_FEET_LIFT, groundPx: WOLF_FEET_LIFT * U,
+    noseLocal, nosePx: noseLocal * U,
+  };
 }
 /* The view centre: during a bend it eases sideways, and the lanes,
    the streaks and the background shift with it — the road visibly
@@ -353,14 +419,14 @@ function groundY(z){ return HORIZON_Y + (PLAYER_Y - HORIZON_Y) * scaleAt(z); }
 /* ---------- obstacle size: drawn size = collision size ---------- */
 function obstDims(kind){
   // The barrier is width-driven: 1.2 lanes wide, height from its real
-  // aspect (968x180). A star is height-driven: as tall as bé cá.
+  // aspect (931x320 = 2.909). A star is height-driven: half bé cá's height.
   if (kind === 'star') {
     const h = STAR_H_BASE * U;
     const aspect = imgReady(imgStar) ? imgStar.naturalWidth / imgStar.naturalHeight : 1;
     return { w: h * aspect, h };
   }
   const img = imgLow;
-  const aspect = imgReady(img) ? img.naturalWidth / img.naturalHeight : 5.378;
+  const aspect = imgReady(img) ? img.naturalWidth / img.naturalHeight : 2.909;
   const w = LOW_W_LANES * LANE_HALF;
   return { w, h: w / aspect };
 }
@@ -466,7 +532,7 @@ wrap.addEventListener('click', e => {
   if (S.mode === 'cutscene') skipCutscene();
 });
 
-/* Ground streaks: thin dirt dashes on the brown ground that rush past
+/* Ground streaks: thin sand dashes on the beach that rush past
    at world speed — the main "running FORWARD" cue. */
 function newStreak(anyZ){
   return { x: -2 + Math.random() * 4, z: anyZ ? Math.random() * 260 : 230 + Math.random() * 60,
@@ -489,7 +555,7 @@ function spawnPattern(){
   const addStar = (lane, z, h) => S.entities.push({ kind:'star', lane, z, h: h || 0 });
   const addStarArc = (lane, z0) => {
     addStar(lane, z0, 0);
-    addStar(lane, z0 + 12, 110); // high star — jump for it (apex ~146)
+    addStar(lane, z0 + 12, 110); // high star — jump for it (apex ~195)
     addStar(lane, z0 + 24, 0);
   };
   if (r < 0.22) {
@@ -557,6 +623,7 @@ function startGame(){
   S.turn.active = false; S.turn.t = 0; S.turn.nextAt = 450 + Math.random() * 350;
   S.nextRopeAt = 900 + Math.random() * 600;
   S.turnCount = 0; S.ropeCount = 0; S.swingCount = 0;
+  S.smoke = []; S.smokeAcc = 0;
   menuEl.classList.add('hidden');
   overEl.classList.add('hidden');
   hudEl.classList.add('hidden');
@@ -651,6 +718,34 @@ function update(dt){
   S.charX += (targetX - S.charX) * Math.min(1, dt * LANE_LERP);
   if (Math.abs(targetX - S.charX) < 2) S.charX = targetX;
 
+  /* --- wolf smoke: the wolf runs so fast it kicks up dust. Puffs
+     spawn at its paws, drift backward (down-screen, toward the
+     camera) at world speed, grow and fade over ~0.6–0.9 s. --- */
+  if (wolfVisible()) {
+    const g = wolfGeom();
+    S.smokeAcc += dt * SMOKE_RATE;
+    while (S.smokeAcc >= 1) {
+      S.smokeAcc -= 1;
+      if (S.smoke.length < SMOKE_MAX) {
+        S.smoke.push({
+          x: g.x + (Math.random() - 0.5) * g.w * 0.55,
+          y: g.feetY - Math.random() * 4 * U,
+          r: (5 + Math.random() * 5) * U,
+          life: 0, max: 0.55 + Math.random() * 0.3,
+          vx: (Math.random() - 0.5) * 26 * U,
+          vy: (S.speed * 0.9 + Math.random() * 30) * U,
+        });
+      }
+    }
+  }
+  for (const p of S.smoke) {
+    p.life += dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.r += 14 * U * dt;
+  }
+  S.smoke = S.smoke.filter(p => p.life < p.max);
+
   // jump timer
   if (S.jumpT >= 0) {
     S.jumpT += dt;
@@ -720,13 +815,13 @@ function update(dt){
 
 /* ---------- drawing ---------- */
 function drawBackground(){
-  // Wide brown dirt ground (no rails — bé cá runs straight on the ground),
-  // drawn cover-style to fill the whole screen edge-to-edge, with the dirt
-  // path's vanishing point aligned to HORIZON_Y. During a bend the whole
+  // Low-poly beach (no rails — bé cá runs straight on the sand),
+  // drawn cover-style to fill the whole screen edge-to-edge, with the
+  // sea/sand shoreline aligned to HORIZON_Y. During a bend the whole
   // background shifts sideways a little with the view centre.
   if (imgReady(bgImg)) {
     const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight; // 800x1600
-    const horizonInImg = ih * BG_HORIZON_FRAC; // dirt path vanishes here
+    const horizonInImg = ih * BG_HORIZON_FRAC; // sea meets sand here
     const s = Math.max(VW / iw, VH / ih, (VH - HORIZON_Y) / (ih - horizonInImg));
     const dw = iw * s, dh = ih * s;
     const dx = (VW - dw) / 2 + S.turnX * 0.4;
@@ -737,7 +832,7 @@ function drawBackground(){
     ctx.fillRect(0, 0, VW, VH);
   }
 }
-/* Ground streaks — thin dirt dashes rushing past on the brown ground.
+/* Ground streaks — thin sand dashes rushing past on the beach.
    This is the main "running FORWARD" cue: the ground itself moves fast
    under bé cá's feet, so she cannot read as jogging in place. */
 function drawStreaks(){
@@ -752,7 +847,7 @@ function drawStreaks(){
     const x = viewCX() + st.x * LANE_HALF * s;
     const y = groundY(st.z);
     const len = 30 * U * s;
-    ctx.strokeStyle = st.dark ? 'rgba(120, 84, 44, 0.45)' : 'rgba(214, 176, 128, 0.5)';
+    ctx.strokeStyle = st.dark ? 'rgba(190, 150, 90, 0.5)' : 'rgba(255, 232, 180, 0.55)';
     ctx.lineWidth = Math.max(1, 3.5 * U * s);
     ctx.beginPath();
     ctx.moveTo(x - len / 2, y);
@@ -762,45 +857,21 @@ function drawStreaks(){
   ctx.restore();
 }
 function drawStar(e){
+  // A simple modest gold star — NO glow, NO glint, NO pulse. The art
+  // itself carries a soft shine; the code adds nothing on top.
   if (!imgReady(imgStar)) return;
   const s = scaleAt(e.z);
   const x = laneX(e.lane, e.z);
   // centre sits half a star above the ground (+ arc height): the star's
-  // bottom touches the dirt for ground stars
+  // bottom touches the sand for ground stars
   const h = STAR_H_BASE * U;
   const w = h * (imgStar.naturalWidth / imgStar.naturalHeight);
   const y = groundY(e.z) - (e.h || 0) * U * s - (h / 2) * s;
-  // gentle pulse so the star feels alive as it approaches
-  const pulse = 1 + 0.04 * Math.sin(S.time * 5 + e.z * 0.4);
-  // pulsing golden glow behind the star, so it sparkles as it approaches
-  const glow = 0.30 + 0.18 * Math.sin(S.time * 6 + e.z * 0.5);
-  const gg = ctx.createRadialGradient(x, y, 0, x, y, h * 1.3 * s);
-  gg.addColorStop(0, 'rgba(255, 215, 0, ' + glow.toFixed(3) + ')');
-  gg.addColorStop(1, 'rgba(255, 215, 0, 0)');
-  ctx.fillStyle = gg;
-  ctx.beginPath(); ctx.arc(x, y, h * 1.3 * s, 0, Math.PI * 2); ctx.fill();
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(s * pulse, s * pulse);
+  ctx.scale(s, s);
   ctx.drawImage(imgStar, -w / 2, -h / 2, w, h);
   ctx.restore();
-  // twinkling 4-point star glint at the star's upper right
-  const tw = 0.6 + 0.4 * Math.sin(S.time * 8 + e.z * 0.7);
-  const gs = h * 0.28 * s * tw;
-  if (gs > 2) {
-    ctx.save();
-    ctx.translate(x + w * 0.28 * s, y - h * 0.3 * s);
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(0, -gs);
-    ctx.quadraticCurveTo(0, 0, gs, 0);
-    ctx.quadraticCurveTo(0, 0, 0, gs);
-    ctx.quadraticCurveTo(0, 0, -gs, 0);
-    ctx.quadraticCurveTo(0, 0, 0, -gs);
-    ctx.fill();
-    ctx.restore();
-  }
 }
 function drawObstacle(e){
   const s = scaleAt(e.z);
@@ -822,7 +893,7 @@ function drawRope(e){
   if (s < 0.08) return;
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z);
-  // the gap in the path: a dark hole in the dirt, lane-wide
+  // the gap in the path: a dark hole in the sand, lane-wide
   ctx.fillStyle = 'rgba(38, 20, 6, 0.9)';
   ctx.beginPath();
   ctx.ellipse(x, y, 62 * U * s, 13 * U * s, 0, 0, Math.PI * 2);
@@ -848,22 +919,46 @@ function drawRope(e){
   ctx.arc(x, botY, Math.max(2, 7 * U * s), 0, Math.PI * 2);
   ctx.fill();
 }
+/* Draw one wolf run frame at a FIXED display width w, feet anchored
+   at feetY, centred on cx. Height follows the frame's own aspect
+   (the frames differ in width, so their heights differ too — that
+   variation is the gallop's stretch along the depth axis). */
+function drawWolfFrame(img, cx, feetY, w){
+  if (!imgReady(img)) return 0;
+  const aspect = img.naturalWidth / img.naturalHeight;
+  const h = w / aspect;
+  ctx.drawImage(img, cx - w / 2, feetY - h, w, h);
+  return h;
+}
 function drawWolfChase(){
-  // The wolf runs right behind bé cá — slightly higher on screen
-  // (further from the camera) and smaller, offset to her left.
-  // Fades out over the last second of the 7 s chase.
+  // The wolf runs CLOSE behind bé cá — slightly higher on screen
+  // (further from the camera) and offset left, its nose nearly
+  // touching her back, cycling all 4 run frames at the same rate
+  // as her stride. Fades out over the last second of the 7 s chase.
+  // Drawn BEFORE bé cá, so she occludes its middle: it is behind her.
   const a = wolfAlpha();
-  if (a <= 0 || !imgReady(imgWolfRun)) return;
-  const h = CHAR_H * 0.72;
-  const w = h * (imgWolfRun.naturalWidth / imgWolfRun.naturalHeight);
-  const bob = Math.sin(S.time * (9 + S.speed * 0.05)) * 4 * U;
-  const wx = S.charX - 82 * U;
-  const feetY = PLAYER_Y - 30 * U + bob;
+  if (a <= 0) return;
+  const img = wolfFrames[wolfFrameIndex()];
+  if (!imgReady(img)) return;
+  const g = wolfGeom();
   ctx.save();
   ctx.globalAlpha = a;
-  ctx.translate(wx, feetY);
-  ctx.rotate(0.06);
-  ctx.drawImage(imgWolfRun, -w / 2, -h, w, h);
+  drawWolfFrame(img, g.x, g.feetY, g.w);
+  ctx.restore();
+}
+/* The dust the wolf kicks up: soft grey-tan puffs drifting backward
+   (toward the camera) and fading. Drawn after the wolf, before bé cá. */
+function drawSmoke(){
+  if (!S.smoke.length) return;
+  ctx.save();
+  for (const p of S.smoke) {
+    const f = 1 - p.life / p.max; // 1 -> 0
+    ctx.globalAlpha = f * 0.32;
+    ctx.fillStyle = '#b3a284';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 function drawSwing(){
@@ -1052,12 +1147,8 @@ function drawCutscene(){
   } else if (t < CUT_C) {
     // (c) the wolf jumps up angry, bé cá runs off to the right
     const p = ease(Math.min(1, (t - CUT_B) / (CUT_C - CUT_B)));
-    if (imgReady(imgWolfRun)) {
-      const h = 200 * U;
-      const w = h * (imgWolfRun.naturalWidth / imgWolfRun.naturalHeight);
-      const bounce = -18 * U * Math.sin(p * Math.PI);
-      ctx.drawImage(imgWolfRun, wolfX - w / 2, PLAYER_Y - h + bounce, w, h);
-    }
+    const bounce = -18 * U * Math.sin(p * Math.PI);
+    drawWolfFrame(wolfFrames[0], wolfX, PLAYER_Y + bounce, 150 * U);
     const img = runFrames[Math.floor(t * 12) % 4];
     const rw = becaH * (img.naturalWidth / img.naturalHeight);
     const bx = VW * 0.52 + (VW * 0.95 - VW * 0.52) * p;
@@ -1068,12 +1159,8 @@ function drawCutscene(){
     const img = runFrames[Math.floor(t * 14) % 4];
     const rw = becaH * (img.naturalWidth / img.naturalHeight);
     if (imgReady(img)) ctx.drawImage(img, VW * 0.52 - rw / 2, PLAYER_Y - becaH, rw, becaH);
-    if (imgReady(imgWolfRun)) {
-      const h = 150 * U;
-      const w = h * (imgWolfRun.naturalWidth / imgWolfRun.naturalHeight);
-      const bob = Math.sin(t * 14) * 4 * U;
-      ctx.drawImage(imgWolfRun, VW * 0.52 - 170 * U - w / 2, PLAYER_Y - h + bob, w, h);
-    }
+    const bob = Math.sin(t * 14) * 4 * U;
+    drawWolfFrame(wolfFrames[Math.floor(t * 14) % 4], VW * 0.52 - 170 * U, PLAYER_Y + bob, 132 * U);
     drawCaption('CHẠY ĐI!', 'RUN!', 110 * U);
   }
   // skip hint
@@ -1103,8 +1190,9 @@ function draw(){
     else if (e.kind === 'rope') drawRope(e);
     else drawObstacle(e);
   }
+  // the wolf first: it runs BEHIND bé cá, so she occludes its middle
+  if (S.mode === 'playing') { drawWolfChase(); drawSmoke(); }
   drawCharacter();
-  if (S.mode === 'playing') drawWolfChase();
   drawTurnArrow();
   // gentle vignette (soft, no flash)
   const vg = ctx.createRadialGradient(viewCX(), VH/2, VH*0.45, viewCX(), VH/2, VH*0.85);
@@ -1135,6 +1223,10 @@ window.__becaRun = {
   spawnPattern,
   laneX, groundY, scaleAt, viewCX,
   runFrame: runFrameIndex,
+  wolfFrame: wolfFrameIndex,
+  wolfGeom, wolfGap,
+  smokeCount(){ return S.smoke.length; },
+  smoke(){ return S.smoke; },
   speedNorm, speedLines: speedLineState,
   obstDims, lanePassable, rowIsFair, rowFreeLane, lowBarH, starH,
   wolfVisible, wolfAlpha,
@@ -1147,13 +1239,16 @@ window.__becaRun = {
                      JUMP_APEX: jumpApex(), OLD_JUMP_APEX: OLD_JUMP_APEX * U,
                      LANE_LERP, BG_HORIZON_FRAC, CUT_DUR, WOLF_CHASE_T,
                      SPEED_BASE, SPEED_MAX, PLAYER_HW,
+                     WOLF_W: WOLF_W * U, WOLF_GAP_LOCAL: WOLF_FEET_LIFT,
+                     WOLF_GAP_PX: WOLF_FEET_LIFT * U,
+                     WOLF_X_OFF: WOLF_X_OFF * U, SMOKE_RATE, SMOKE_MAX,
                      TURN_SHIFT }; },
   resize,
   assets(){
     return {
       bg: imgReady(bgImg), star: imgReady(imgStar),
       low: imgReady(imgLow),
-      wolfRun: imgReady(imgWolfRun), wolfSit: imgReady(imgWolfSit),
+      wolfRun: wolfFrames.map(imgReady), wolfSit: imgReady(imgWolfSit),
       cry: imgReady(imgCry),
       run: runFrames.map(imgReady),
       front: imgReady(spriteFront),
