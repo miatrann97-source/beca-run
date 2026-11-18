@@ -19,13 +19,13 @@ else if(scene==='rear-orange')ents=[T(0,12,200,'orange')];
 else if(scene==='rear-blue')ents=[T(0,12,200,'blue')];
 else if(scene==='rear-ramp')ents=[T(0,55,200,'red',true)];
 else if(scene==='side')ents=[T(-1,-60,260,'blue'),B(1,40)];
-else if(scene==='roof'){var t=T(0,-30,260,'red',true);ents=[t,C(0,40,230),C(0,90,230),C(0,140,230)];S.onTrain=t;}
+else if(scene==='roof'){var t=T(0,-30,260,'red',true);ents=[t];S.onTrain=t;}
 else if(scene==='stairs')ents=[T(0,55,200,'orange',true)];
 else if(scene==='past')ents=[T(0,90,180,'red'),B(1,300),C(-1,290),T(1,320,200,'blue')];
 else if(scene==='far')ents=[B(0,260),C(0,300),C(0,330)];
 else if(scene==='shadows')ents=[T(-1,20,200,'blue'),B(1,45),O(0,120)];
-else if(scene==='over-train')ents=[T(0,35,200,'red')];
-else if(scene==='over-blue')ents=[T(0,35,200,'blue',true)];
+else if(scene==='over-train')ents=[T(0,12,200,'red')];
+else if(scene==='over-blue')ents=[T(0,12,200,'blue',true)];
 else ents=[T(0,12,200,'red')];
 S.entities=ents;
 if(scene==='over-train'||scene==='over-blue'){S.score=50;S.coins=3;S.distance=500;g.over();return;}
