@@ -85,21 +85,32 @@
   .best { margin-top:12px; font-size:15px; font-weight:800; text-shadow:0 2px 4px rgba(0,40,90,.6); }
   .best b { color:#ffe082; }
   /* game over: the wolf caught her — crying bé cá, wolf right behind */
+  /* v15.1: the panel is SPLIT — title + cry/wolf at the top, stats +
+     button at the bottom (margin-top:auto) — so the train's rear
+     face at collision distance (z≈12, y≈319–518 on a 390x844 phone)
+     stays visible in the clear middle instead of hiding behind the
+     title and the white stats box. The blue wash is halved so the
+     train's colours stay true. The menu overlay is untouched. */
+  #gameover { justify-content:flex-start;
+    background:linear-gradient(180deg, rgba(20,90,160,.10), rgba(10,60,120,.28)); }
   #gameover .catch { display:flex; align-items:flex-end; gap:4px; margin:4px 0 2px; }
   #gameover .catch img.cry {
-    height:150px; width:auto;
+    height:132px; width:auto;
     filter:drop-shadow(0 10px 14px rgba(0,40,90,.5));
   }
   #gameover .catch img.wolf {
-    height:102px; width:auto; margin-bottom:2px;
+    height:90px; width:auto; margin-bottom:2px;
     filter:drop-shadow(0 8px 12px rgba(0,40,90,.45));
   }
-  #gameover .big { font-size:38px; font-weight:900; text-shadow:0 4px 0 #1b6fb8, 0 8px 18px rgba(0,40,90,.5); }
+  #gameover .big { font-size:34px; font-weight:900; text-shadow:0 4px 0 #1b6fb8, 0 8px 18px rgba(0,40,90,.5); }
   #gameover .stats {
     background:rgba(255,255,255,.92); color:#14568f; border-radius:16px;
-    padding:14px 22px; margin:16px 0; font-size:19px; line-height:1.9; font-weight:800;
+    padding:12px 20px; margin:12px 0; font-size:18px; line-height:1.9; font-weight:800;
     box-shadow:0 6px 16px rgba(0,40,90,.3); min-width:250px;
   }
+  /* the auto margin pushes the stats box + button + best line to the
+     bottom of the screen, leaving the middle clear for the train */
+  #gameover .stats { margin-top:auto; }
   #gameover .stats b { color:#ff8a00; font-size:24px; }
   #gameover .newbest { color:#ffe082; font-weight:900; font-size:18px; margin-top:4px; text-shadow:0 2px 6px rgba(0,40,90,.6); }
   /* ---------- in-game hint ---------- */
@@ -148,7 +159,10 @@
 
   <div id="gameover" class="overlay hidden">
     <div class="catch">
-      <img class="wolf" src="art/wolf-run1.png" alt="Sói">
+      <!-- v15.1: wolf-run2 (paws tucked under the body) — run1/run3 are
+           mid-leap frames whose splayed paws read as "lying on its
+           back, four paws up" in this static panel -->
+      <img class="wolf" src="art/wolf-run2.png" alt="Sói">
       <img class="cry" src="art/beca-cry.png" alt="Bé cá khóc">
     </div>
     <div class="big">SÓI BẮT ĐƯỢC CÁ RỒI!</div>
@@ -400,7 +414,9 @@ const TRAIN_FACE_CROP = {
 };
 /* v15: train surface detail — the v14 detail stays (windows + cream
    stripe on both walls, pale walkway + panel lines on the roof,
-   band + centre seam on the end caps), and the train becomes a
+   thin dark panel joints + centre seam on the end caps — v15.1: the
+   v14.1 wide light bands read as pink bars when riding), and the
+   train becomes a
    SOLID 3D box: a thick dark fascia along both roof edges + across
    the far end, a dark skirt along the bottom of each wall, and
    BIG windows with thick raised frames (Subway: windows ~25% of the
@@ -413,9 +429,8 @@ const WIN_GLASS = '#bfe3f2';  // window glass (pale blue)
 const SIDE_STRIPE = '#ffe9b0'; // cream stripe along each wall
 const ROOF_WALK = '#e9e4d8';  // pale walkway down the middle of the roof
 const ROOF_LINE = 'rgba(0,0,0,0.28)'; // roof panel cross-lines
-const CAP_BAND = 'rgba(255,255,255,0.45)';  // end-cap detail band (light — dark bands vanished under the game-over overlay)
-const CAP_BAND2 = 'rgba(255,255,255,0.28)'; // second end-cap band, higher up
-const CAP_SEAM = 'rgba(0,0,0,0.35)';  // end-cap centre seam
+const CAP_JOINT = 'rgba(0,0,0,0.28)'; // v15.1: end-cap panel joint (thin, dark — the v14.1 wide LIGHT bands read as two pink bars on the dark cap when riding, white over dark red; the game-over overlay is lighter now so the cap no longer needs to fight it)
+const CAP_SEAM = 'rgba(0,0,0,0.30)';  // end-cap centre seam
 const WIN_W_LOCAL = 30, WIN_H_LOCAL = 44, WIN_CY_LOCAL = 165; // v15: was 20x30 — windows ~19% of the 230 wall, close to Subway's ~25%
 const WIN_STEP_Z = 45, WIN_FIRST_OFF = 22, WIN_MIN_S = 0.12;  // window spacing along the wall
 const FASCIA_FRAC = 0.17; // roof edge thickness, fraction of train height (~17%, measured in the video)
@@ -1453,26 +1468,37 @@ function drawTrain(e){
   // v14: end-cap detail — a horizontal band + centre seam, so the
   // big near cap (a full lane wide at the player's plane) is not a
   // flat slab. Skipped when the cap is too small to show it.
-  const capDetail = (cx, topY, cw, ch) => {
+  const capDetail = (cx, topY, cw, ch, riding) => {
     if (ch < 12) return;
-    // v14.1: two LIGHT bands + a strong seam — the v14 dark bands
-    // (0.20/0.15 black) were invisible on the dark cap colours and
-    // vanished entirely under the game-over screen's blue overlay.
-    ctx.fillStyle = CAP_BAND2;
-    ctx.fillRect(cx, topY + ch * 0.18, cw, Math.max(2, ch * 0.08));
-    ctx.fillStyle = CAP_BAND;
-    ctx.fillRect(cx, topY + ch * 0.45, cw, Math.max(3, ch * 0.12));
+    // v15.1: thin dark panel joints (same colour as the roof panel
+    // lines) — the v14.1 wide light bands read as two pink bars on
+    // the dark cap when riding.
+    ctx.fillStyle = CAP_JOINT;
+    ctx.fillRect(cx, topY + ch * 0.18, cw, Math.max(2, ch * 0.03));
+    ctx.fillRect(cx, topY + ch * 0.45, cw, Math.max(2, ch * 0.03));
+    if (riding) return; // the walkway stripe (drawn below) owns the centre
     ctx.fillStyle = CAP_SEAM;
-    const sw = Math.max(3, 6 * U);
+    const sw = Math.max(2, 4 * U);
     ctx.fillRect(cx + cw / 2 - sw / 2, topY, sw, ch);
   };
   ctx.fillStyle = c.side;
   ctx.fillRect(x2 - w2 * cHalf2, y2 - h2, w2 * cHalf2 * 2, h2); // far cap
-  capDetail(x2 - w2 * cHalf2, y2 - h2, w2 * cHalf2 * 2, h2);
+  capDetail(x2 - w2 * cHalf2, y2 - h2, w2 * cHalf2 * 2, h2, false);
   if (e.z <= 0) {
     ctx.fillStyle = c.side;
     ctx.fillRect(x - w * cHalf, y - h, w * cHalf * 2, h); // near cap (cut at the player's plane)
-    capDetail(x - w * cHalf, y - h, w * cHalf * 2, h);
+    const riding = S.onTrain === e;
+    capDetail(x - w * cHalf, y - h, w * cHalf * 2, h, riding);
+    // v15.1: while riding, the walkway stripe continues down the cut
+    // face — one continuous stripe from the horizon to the bottom of
+    // the screen. Without it the stripe stops dead at her feet (the
+    // roof walkway hides behind her body) and the cap reads as a
+    // flat red wall. Same width as the roof walkway at the player's
+    // plane (0.24 * w).
+    if (riding) {
+      ctx.fillStyle = ROOF_WALK;
+      ctx.fillRect(x - w * 0.12, y - h, w * 0.24, h);
+    }
   }
   // left side quad (darker)
   ctx.fillStyle = c.side;
@@ -1663,6 +1689,17 @@ function drawRamp(e){
   // through the gaps between the steps. The top outline is STEPPED
   // (horizontal treads + vertical risers), so it meets each tread
   // exactly — a diagonal top would leave triangular gaps.
+  // v15.1: the stringers start at the LOWEST VISIBLE step face.
+  // When the foot is behind the player's plane (footZ < 0) the old
+  // code started the stringers at the ground at z=0, so their two
+  // ends stuck out below the last step as gold spikes. (The
+  // platform face counts if it is the only visible face; if no
+  // face is visible the stringer is the platform's side wall and
+  // starts at z=0, correctly.)
+  const stepJ0 = Math.ceil((0 - footZ) / stepLen);
+  const zLowFace = stepJ0 < RAMP_STEPS ? footZ + stepJ0 * stepLen
+    : (e.z - RAMP_TOP >= 0 ? e.z - RAMP_TOP : null);
+  const zStart = zLowFace === null ? Math.max(0, footZ) : zLowFace;
   for (const side of [-1, 1]) {
     const pt = (z, hLocal) => {
       const sz = scaleAt(z);
@@ -1672,9 +1709,10 @@ function drawRamp(e){
       const sz = scaleAt(z);
       return [laneX(e.lane, z) + side * halfW * sz, groundY(z)];
     };
-    // top outline, foot -> rear (stepped), clamped to z >= 0
+    // top outline, foot -> rear (stepped), starting at the lowest
+    // visible step face (see above)
     const top = [];
-    const z0 = Math.max(0, footZ);
+    const z0 = zStart;
     top.push(pt(z0, profH(z0)));
     for (let j = 0; j < RAMP_STEPS; j++) {
       const zj = footZ + j * stepLen;
@@ -2009,7 +2047,11 @@ function draw(){
   }
   // the wolf first: it runs BEHIND bé cá, below her on screen
   if (S.mode === 'playing') { drawWolfChase(); drawSmoke(); }
-  drawCharacter();
+  // v15.1: at game-over the character is NOT drawn on the canvas —
+  // the DOM panel shows the crying fish + wolf instead, and the
+  // running fish standing in front of the train hid its rear face
+  // (door, lights, undercarriage) at collision distance.
+  if (S.mode !== 'over') drawCharacter();
   // gentle vignette (soft, no flash)
   const vg = ctx.createRadialGradient(viewCX(), VH/2, VH*0.45, viewCX(), VH/2, VH*0.85);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(10,50,100,.18)');
