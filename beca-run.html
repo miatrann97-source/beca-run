@@ -246,11 +246,15 @@ document.addEventListener('keydown', e => {
 let touchStart = null;
 const wrap = document.getElementById('wrap');
 wrap.addEventListener('touchstart', e => {
+  // Let buttons (Start / Play again) handle their own taps — do not swallow their click on iOS.
+  if (e.target.closest('button')) return;
   const t = e.changedTouches[0];
   touchStart = { x: t.clientX, y: t.clientY, t: performance.now() };
   e.preventDefault();
 }, { passive:false });
 wrap.addEventListener('touchend', e => {
+  // Let buttons handle their own taps.
+  if (e.target.closest('button')) { touchStart = null; return; }
   if (!touchStart) return;
   const t = e.changedTouches[0];
   const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
@@ -262,7 +266,7 @@ wrap.addEventListener('touchend', e => {
   touchStart = null;
   e.preventDefault();
 }, { passive:false });
-wrap.addEventListener('touchmove', e => { e.preventDefault(); }, { passive:false });
+wrap.addEventListener('touchmove', e => { if (e.target.closest('button')) return; e.preventDefault(); }, { passive:false });
 
 /* ---------- spawning ---------- */
 function spawnPattern(){
