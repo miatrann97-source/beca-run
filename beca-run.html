@@ -174,13 +174,30 @@ const hudEl=$('hud'), scoreEl=$('score'), coinsEl=$('coins'),
       menuEl=$('menu'), overEl=$('gameover'), hintEl=$('hint'),
       bestMenuEl=$('bestMenu'), bestOverEl=$('bestOver');
 
-/* ---------- assets ---------- */
-const spriteRun = new Image();
-spriteRun.src = 'art/beca-run-back.png';
-const spriteFront = new Image();
-spriteFront.src = 'art/beca-run-front.png';
-let spriteReady = false;
-spriteRun.onload = () => { spriteReady = true; };
+/* ---------- assets (all 3D style, matching the bé cá) ---------- */
+function loadImg(src){ const img = new Image(); img.src = src; return img; }
+function imgReady(img){ return img.complete && img.naturalWidth > 0; }
+const bgImg = loadImg('art/bg-3d.png');
+const imgCoin = loadImg('art/coin-3d.png');
+const imgLow = loadImg('art/barrier-low-3d.png');
+const imgOver = loadImg('art/bar-over-3d.png');
+const imgTall = loadImg('art/stack-tall-3d.png');
+const imgPalm = loadImg('art/palm-3d.png');
+const imgUmbrella = loadImg('art/umbrella-3d.png');
+const imgHut = loadImg('art/hut-3d.png');
+/* run cycle: 4 frames of the bé cá from behind — the legs visibly move */
+const runFrames = [
+  loadImg('art/beca-run-back.png'),   // frame 1: left leg forward
+  loadImg('art/run-frame2.png'),      // frame 2: legs together
+  loadImg('art/run-frame3.png'),      // frame 3: right leg forward
+  loadImg('art/run-frame4.png'),      // frame 4: legs together
+];
+const spriteFront = loadImg('art/beca-run-front.png');
+function runFrameIndex(){
+  if (S.mode !== 'playing') return 0;
+  if (S.jumpT >= 0) return 1; // tucked legs while jumping
+  return Math.floor(S.runTime * 10) % 4;
+}
 
 /* ---------- state ---------- */
 const S = {
@@ -200,7 +217,6 @@ const S = {
   decor: [],              // side decorations {side:-1|1, z, kind}
   spawnAcc: 0,            // distance since last pattern
   nextGap: 80,
-  clouds: [],
   over: false,
   newBest: false,
 };
@@ -353,8 +369,6 @@ bestMenuEl.textContent = S.best;
 /* ---------- update ---------- */
 function update(dt){
   S.time += dt;
-  // clouds drift
-  for (const c of S.clouds) { c.x += c.v * dt; if (c.x > W + 90) c.x = -90; }
   if (S.mode !== 'playing') return;
 
   S.runTime += dt;
@@ -415,190 +429,72 @@ function update(dt){
 }
 
 /* ---------- drawing ---------- */
-function drawSky(){
-  const g = ctx.createLinearGradient(0, 0, 0, HORIZON_Y + 40);
-  g.addColorStop(0, '#6ec1f5'); g.addColorStop(1, '#cfeeff');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, HORIZON_Y + 40);
-  // sun
-  ctx.fillStyle = '#ffd93b';
-  ctx.beginPath(); ctx.arc(72, 74, 34, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle = 'rgba(255,217,59,.35)';
-  ctx.beginPath(); ctx.arc(72, 74, 48, 0, Math.PI*2); ctx.fill();
-  // clouds
-  ctx.fillStyle = 'rgba(255,255,255,.92)';
-  for (const c of S.clouds) {
-    ctx.beginPath();
-    ctx.ellipse(c.x, c.y, 42, 15, 0, 0, Math.PI*2);
-    ctx.ellipse(c.x + 30, c.y + 4, 30, 12, 0, 0, Math.PI*2);
-    ctx.ellipse(c.x - 30, c.y + 5, 26, 11, 0, 0, Math.PI*2);
-    ctx.fill();
-  }
-  // sea band at horizon
-  ctx.fillStyle = '#2fa8dd';
-  ctx.fillRect(0, HORIZON_Y - 6, W, 34);
-  ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 2;
-  for (let i = 0; i < 3; i++) {
-    const y = HORIZON_Y + 2 + i * 9;
-    ctx.beginPath();
-    for (let x = 0; x <= W; x += 12) ctx.lineTo(x, y + Math.sin((x + S.time*30 + i*40) * 0.05) * 2);
-    ctx.stroke();
-  }
-  // sand strip
-  ctx.fillStyle = '#ffe6a8';
-  ctx.fillRect(0, HORIZON_Y + 28, W, 10);
-}
-function drawBoardwalk(){
-  // boardwalk trapezoid: narrow at horizon, full width at bottom
-  const topW = 150, botW = W;
-  const topY = HORIZON_Y + 38, botY = H;
-  const g = ctx.createLinearGradient(0, topY, 0, botY);
-  g.addColorStop(0, '#d9a05b'); g.addColorStop(1, '#b9834a');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.moveTo(CENTER_X - topW/2, topY); ctx.lineTo(CENTER_X + topW/2, topY);
-  ctx.lineTo(CENTER_X + botW/2, botY); ctx.lineTo(CENTER_X - botW/2, botY);
-  ctx.closePath(); ctx.fill();
-  // edge rails
-  ctx.strokeStyle = '#8a5a28'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(CENTER_X - topW/2, topY); ctx.lineTo(CENTER_X - botW/2, botY); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(CENTER_X + topW/2, topY); ctx.lineTo(CENTER_X + botW/2, botY); ctx.stroke();
-  // lane divider lines (converge to vanishing point)
-  ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 3;
-  ctx.setLineDash([16, 14]);
-  ctx.lineDashOffset = -(S.distance * 2.2) % 30;
-  for (const off of [-0.5, 0.5]) {
-    ctx.beginPath();
-    ctx.moveTo(CENTER_X + off * topW * 0.66, topY);
-    ctx.lineTo(CENTER_X + off * botW * 0.66, botY);
-    ctx.stroke();
-  }
-  ctx.setLineDash([]);
-  // moving plank seams (convey forward motion)
-  ctx.strokeStyle = 'rgba(120,70,20,.35)'; ctx.lineWidth = 2;
-  const spacing = 46;
-  const off = (S.distance * 1.6) % spacing;
-  for (let y = topY + spacing - off; y < botY; y += spacing) {
-    const t = (y - topY) / (botY - topY);
-    const half = (topW/2) + (botW/2 - topW/2) * t;
-    ctx.beginPath(); ctx.moveTo(CENTER_X - half, y); ctx.lineTo(CENTER_X + half, y); ctx.stroke();
+function drawBackground(){
+  // 3D seaside boardwalk backdrop (same 3D style as the bé cá).
+  if (imgReady(bgImg)) {
+    ctx.drawImage(bgImg, 0, 0, W, H);
+  } else {
+    ctx.fillStyle = '#8fd3f4';
+    ctx.fillRect(0, 0, W, H);
   }
 }
 function drawDecor(d){
   const s = scaleAt(d.z);
   if (s < 0.12) return;
+  const img = d.kind === 'palm' ? imgPalm : d.kind === 'umbrella' ? imgUmbrella : imgHut;
+  if (!imgReady(img)) return;
   const sideX = d.side < 0 ? 34 : W - 34;
   const x = CENTER_X + (sideX - CENTER_X) * s;
   const y = groundY(d.z);
-  const h = 120 * s;
+  // local size (at s=1): palm tall, umbrella medium, hut wide
+  const h = d.kind === 'palm' ? 150 : d.kind === 'umbrella' ? 130 : 110;
+  const w = h * (img.naturalWidth / img.naturalHeight);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
-  if (d.kind === 'palm') {
-    ctx.strokeStyle = '#8a5a28'; ctx.lineWidth = 10;
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(8, -50, 18, -90); ctx.stroke();
-    ctx.strokeStyle = '#2fae5f'; ctx.lineWidth = 7; ctx.lineCap = 'round';
-    for (let i = 0; i < 5; i++) {
-      const a = -Math.PI/2 + (i - 2) * 0.55;
-      ctx.beginPath(); ctx.moveTo(18, -90);
-      ctx.quadraticCurveTo(18 + Math.cos(a)*34, -90 + Math.sin(a)*30, 18 + Math.cos(a)*52, -90 + Math.sin(a)*44);
-      ctx.stroke();
-    }
-    ctx.fillStyle = '#8a5a28';
-    ctx.beginPath(); ctx.arc(14, -84, 7, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(24, -82, 6, 0, Math.PI*2); ctx.fill();
-  } else if (d.kind === 'umbrella') {
-    ctx.strokeStyle = '#8a5a28'; ctx.lineWidth = 6;
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -62); ctx.stroke();
-    ctx.fillStyle = '#ff6b81';
-    ctx.beginPath(); ctx.moveTo(-42, -58); ctx.quadraticCurveTo(0, -104, 42, -58); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.moveTo(-14, -58); ctx.quadraticCurveTo(0, -96, 14, -58); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#ffd93b';
-    ctx.beginPath(); ctx.arc(0, -104, 5, 0, Math.PI*2); ctx.fill();
-  } else { // hut
-    ctx.fillStyle = '#fff3d6';
-    ctx.fillRect(-34, -52, 68, 52);
-    ctx.fillStyle = '#ff8a5c';
-    ctx.beginPath(); ctx.moveTo(-40, -50); ctx.lineTo(0, -82); ctx.lineTo(40, -50); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#5ec8e5';
-    ctx.fillRect(-12, -30, 24, 30);
-    ctx.fillStyle = '#ffd93b';
-    ctx.beginPath(); ctx.arc(-22, -40, 5, 0, Math.PI*2); ctx.fill();
-  }
+  ctx.drawImage(img, -w / 2, -h, w, h);
   ctx.restore();
 }
 function drawCoin(e){
+  if (!imgReady(imgCoin)) return;
   const s = scaleAt(e.z);
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z) - (e.h || 0) * s - 26 * s;
-  const r = Math.max(4, 15 * s);
   const spin = Math.abs(Math.cos(S.time * 6 + e.z * 0.2));
-  const rx = Math.max(2, r * (0.25 + 0.75 * spin));
+  const sx = 0.25 + 0.75 * spin; // spin squash
+  const r = 17; // local half-size
   ctx.save();
   ctx.translate(x, y);
-  ctx.fillStyle = '#f7b500';
-  ctx.beginPath(); ctx.ellipse(0, 0, rx, r, 0, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle = '#ffd93b';
-  ctx.beginPath(); ctx.ellipse(0, -r*0.25, rx*0.75, r*0.6, 0, 0, Math.PI*2); ctx.fill();
-  ctx.strokeStyle = '#c88a00'; ctx.lineWidth = Math.max(1, 2 * s);
-  ctx.beginPath(); ctx.ellipse(0, 0, rx, r, 0, 0, Math.PI*2); ctx.stroke();
+  ctx.scale(s * sx, s);
+  ctx.drawImage(imgCoin, -r, -r, r * 2, r * 2);
   ctx.restore();
 }
 function drawObstacle(e){
   const s = scaleAt(e.z);
   if (s < 0.1) return;
+  const img = e.kind === 'low' ? imgLow : e.kind === 'over' ? imgOver : imgTall;
+  if (!imgReady(img)) return;
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z);
+  // local size (at s=1), matched to each 3D image's aspect ratio
+  const h = e.kind === 'low' ? 58 : e.kind === 'over' ? 188 : 183;
+  const w = h * (img.naturalWidth / img.naturalHeight);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
-  if (e.kind === 'low') {
-    // striped hurdle barrier
-    const h = LOW_BAR_H;
-    ctx.fillStyle = '#8a5a28';
-    ctx.fillRect(-30, -h, 6, h); ctx.fillRect(24, -h, 6, h);
-    ctx.fillStyle = '#ff8a3d';
-    ctx.fillRect(-34, -h, 68, 16);
-    ctx.fillStyle = '#fff';
-    for (let i = 0; i < 4; i++) ctx.fillRect(-34 + i*17, -h, 8, 16);
-    ctx.fillStyle = '#ff8a3d';
-    ctx.fillRect(-34, -h + 26, 68, 8);
-  } else if (e.kind === 'over') {
-    // hanging sign bar — slide under it
-    const gap = OVER_GAP;
-    ctx.fillStyle = '#8a5a28';
-    ctx.fillRect(-34, -150, 6, 150 - gap); ctx.fillRect(28, -150, 6, 150 - gap);
-    ctx.fillStyle = '#2fb3e8';
-    ctx.fillRect(-40, -150, 80, 26);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(-40, -150, 80, 6);
-    ctx.fillStyle = '#ffd93b';
-    ctx.beginPath(); ctx.arc(0, -137, 8, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#2fb3e8';
-    ctx.beginPath(); ctx.moveTo(-40, -124); ctx.lineTo(-40, -112); ctx.lineTo(-28, -124); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(40, -124); ctx.lineTo(40, -112); ctx.lineTo(28, -124); ctx.closePath(); ctx.fill();
-  } else if (e.kind === 'tall') {
-    // stack of beach boxes — must switch lanes
-    ctx.fillStyle = '#ff6b81'; ctx.fillRect(-32, -64, 64, 64);
-    ctx.fillStyle = '#ffd93b'; ctx.fillRect(-26, -128, 52, 64);
-    ctx.fillStyle = '#2fb3e8'; ctx.fillRect(-20, -176, 40, 48);
-    ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 2;
-    ctx.strokeRect(-32, -64, 64, 64); ctx.strokeRect(-26, -128, 52, 64); ctx.strokeRect(-20, -176, 40, 48);
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(0, -152, 9, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#ff6b81';
-    ctx.beginPath(); ctx.arc(-6, -96, 7, 0, Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(8, -96, 7, 0, Math.PI*2); ctx.fill();
-  }
+  ctx.drawImage(img, -w / 2, -h, w, h);
   ctx.restore();
 }
 function drawCharacter(){
-  if (!spriteReady) return;
+  // run-cycle: 4 frames cycle while running so the legs visibly move
+  const fi = runFrameIndex();
+  const img = runFrames[fi];
+  if (!imgReady(img)) return;
   const bob = Math.sin(S.time * 11) * 3;
   const pH = jumpHeight();
   const sliding = isSliding();
   const h = CHAR_H * (sliding ? SLIDE_SY : 1);
-  const w = CHAR_H * (spriteRun.width / spriteRun.height);
+  const w = CHAR_H * (img.naturalWidth / img.naturalHeight);
   const feetY = PLAYER_Y - pH + (sliding ? 0 : bob);
   const tilt = Math.sin(S.time * 11) * 0.03;
   // soft shadow
@@ -611,13 +507,12 @@ function drawCharacter(){
   ctx.translate(S.charX, feetY);
   ctx.rotate(tilt);
   if (sliding) ctx.translate(0, CHAR_H * (1 - SLIDE_SY));
-  ctx.drawImage(spriteRun, -w/2, -h, w, h);
+  ctx.drawImage(img, -w/2, -h, w, h);
   ctx.restore();
 }
 function draw(){
   ctx.clearRect(0, 0, W, H);
-  drawSky();
-  drawBoardwalk();
+  drawBackground();
   // decor sorted far -> near
   const dec = S.decor.slice().sort((a,b) => b.z - a.z);
   for (const d of dec) drawDecor(d);
@@ -643,9 +538,6 @@ function loop(now){
   draw();
   requestAnimationFrame(loop);
 }
-// clouds
-for (let i = 0; i < 4; i++)
-  S.clouds.push({ x: 40 + i * 120, y: 46 + (i % 2) * 56, v: 5 + i * 2 });
 requestAnimationFrame(loop);
 
 /* ---------- test hook (not part of gameplay) ---------- */
@@ -657,6 +549,15 @@ window.__becaRun = {
   jumpHeight, isSliding,
   spawnPattern,
   laneX, groundY, scaleAt,
+  runFrame: runFrameIndex,
+  assets(){
+    return {
+      bg: imgReady(bgImg), coin: imgReady(imgCoin),
+      low: imgReady(imgLow), over: imgReady(imgOver), tall: imgReady(imgTall),
+      palm: imgReady(imgPalm), umbrella: imgReady(imgUmbrella), hut: imgReady(imgHut),
+      run: runFrames.map(imgReady),
+    };
+  },
   setSpeed(v){ S.speed = v; },
   step(dt){ update(dt); draw(); },
 };
