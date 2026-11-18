@@ -223,12 +223,18 @@ const wrap = document.getElementById('wrap');
 const SPEED_BASE = 85;      // the race starts fast
 const SPEED_MAX  = 230;
 const SPEED_RAMP = 2.2;     // speed builds quickly
-const CHAR_H_BASE = 150;    // character height, logical px — small like Jake
+const CHAR_H_BASE = 165;    // character DRAW height, logical px — v15: was 150 (Subway: the
+  // character is 20-30% of the frame and the clear focal point; ours was only
+  // ~16.7% and got lost against the big red-orange walls). DRAW ONLY — the
+  // hitbox (PLAYER_HW 28), slide height (70) and jump physics are unchanged.
 const SPAWN_Z = 300;        // spawn distance ahead (1.3 s of warning at max speed — a jump commits 1.02 s, so the player must see the row they will land into before jumping)
 const HIT_Z = 9;            // z window where collisions / pickups count
 const LANE_LERP = 22;       // lane-change smoothing rate
 const PLAYER_Y_FRAC = 0.70; // bé cá's feet: up the screen, ahead of the wolf (v13: camera lowered a touch, was 0.69)
-const HORIZON_Y_FRAC = 0.29; // vanishing point: higher up now (v13, was 0.3125) — more ground/track visible, character reads bigger
+const HORIZON_Y_FRAC = 0.22; // v15: was 0.29 — the vanishing point moves UP (Subway: horizon
+  // 10-15% of the frame, a thin band of sky), so the player sees OVER the
+  // trains to the next rows instead of the rows hiding behind the train bodies.
+  // PLAYER_Y stays 0.70: the wolf's paws must stay on screen (margin ~10 px).
 /* v13: obstacle heights are FIXED in local units (height-based,
    so they are identical on every screen aspect): the jump apex
    (298 local, v14) and the slide height (70 local) are local too, so
@@ -239,25 +245,40 @@ const HORIZON_Y_FRAC = 0.29; // vanishing point: higher up now (v13, was 0.3125)
    jumping. Widths now derive from the art aspect ratios, so on
    the iPhone (390x844) the sizes are pixel-identical to before.
    - low barrier: 54.9 local tall (was 1.35 lanes wide, art 931x320 = 2.909)
+     — COLLISION height only. v15 draws it TALLER: a red-white chevron panel
+     above the sprite, total visual height ~150 local (~0.9x bé cá), so the
+     barrier reads from far away and its top peeks over a train's roofline
+     (Subway: jump-over barriers are 1.5-2x the character, chevron, very
+     visible). The jump still only has to clear the 54.9 collision height.
    - overhead bar: 120.1 local tall (was 1.45 lanes wide, art 600x420 = 1.4286);
      the red-white bar sits in the top ~20% of the sprite
      (measured with PIL: bar rows y 10-85 of 420), so the CLEAR
      GAP underneath is ~0.795 of the height, ~95 local units —
-     standing (150) or jumping into it crashes, sliding
+     standing (165) or jumping into it crashes, sliding
      (collision height 70) passes cleanly with 25 to spare.
-   - trains: roof 260 local high (v14: ~1.7x bé cá's 150 — big and
-     imposing like Subway Surfers), still 1.0 lane wide; the
-     rear-face art (400x600) is drawn into a 118x260 face, so it
-     stretches 1.47x vertically (round headlights go oval) — the
-     price of keeping the width at 1 lane. A 264-wide face would
-     overlap the player standing in the next lane, so the width
-     stays; if the stretched face reads wrong, the 3 train-face
-     arts need redrawing at the new aspect instead. Jump apex
-     ~298 local, margin ~38 over the roof. Length 150-250 z units. */
+   - trains: roof 230 local high (v15: was 260 — lowered ONLY because the
+     occlusion measurement showed the 260 roof + 0.29 horizon hid 83-100%
+     of the next row; with the horizon raised to 0.22 the 230 roof leaves
+     ~50% of the next row visible. 230 is still much taller than bé cá
+     (1.39x her 165 draw height) and still needs a jump to reach (apex 298,
+     margin 68). NOT a revert to the 177.4 of v13. Still 1.0 lane wide;
+     the rear-face art (400x600) is drawn CROPPED to its opaque content
+     into the body width (v15: the red art's content is 338/400, the
+     orange/blue arts' is 396/400 — drawing them all at full width left
+     the orange/blue faces overhanging the body by 0.0775w a side, and the
+     full-width backing stuck out past the walls the same way), so the
+     face aligns exactly with the walls — no flange. The art stretches
+     1.47x vertically (round headlights go oval) — the price of keeping
+     the width at 1 lane. A 264-wide face would overlap the player
+     standing in the next lane, so the width stays; if the stretched face
+     reads wrong, the 3 train-face arts need redrawing at the new aspect
+     instead. Jump apex ~298 local, margin ~68 over the roof.
+     Length 150-250 z units. */
 const LOW_BAR_H_LOCAL = 54.9;
+const LOW_BAR_VISUAL_H_LOCAL = 150; // v15: drawn height of a low barrier (sprite + chevron panel above it); collision stays 54.9
 const OVER_H_LOCAL = 120.1;
 const OVER_GAP_FRAC = 0.795;
-const TRAIN_ROOF_H_LOCAL = 260;   // v14: was 177.4 — the train is now much taller than bé cá (150 local)
+const TRAIN_ROOF_H_LOCAL = 230;   // v15: was 260 — see the note above (occlusion); still much taller than bé cá
 const TRAIN_ASPECT = 2.2;   // v14: was 1.5 — drawn rear-face height / width (260 / 118.3); the WIDTH stays 1.0 lane (118.3 local, pixel-identical to v13 on every viewport), only the height grew
 const TRAIN_LEN_MIN = 150;
 const TRAIN_LEN_MAX = 250;
@@ -276,6 +297,8 @@ const RAMP_STEPS = 6;      // visible steps up the rising part
 const RAMP_W_FRAC = 0.6;   // stairs span the middle 60% of the train width (rear face stays visible either side)
 const RAMP_COLOR = '#e8b23a'; // warm stair yellow
 const RAMP_EDGE = '#ffe082';  // bright yellow step edges
+const RAMP_STRINGER = '#b98a1e'; // v15: dark yellow side stringers — the solid sides of the staircase
+const RAMP_TREAD = '#f2c14e';    // v15: slightly lighter yellow step tops (treads catch the light)
 /* Gold coins: ~55 local tall, plain gold, no glow. Pickup window
    55 local (generous, like the video's coin arcs). */
 const COIN_H_BASE = 55;
@@ -299,7 +322,7 @@ const PLAYER_HW_BASE = 28;    // player hitbox half-width, local units
 const BG_HORIZON_FRAC = 0.526;
 /* v14: Jump: apex = V^2 / (2G) = 945^2 / 3000 = ~298 local units —
    clears the ~55-unit low barrier with a huge margin and reaches
-   the ~260-unit train roof with ~38 units to spare. The jump is
+   the ~230-unit train roof (v15) with ~68 units to spare. The jump is
    higher and floatier than v12 (air time 1.26 s vs 1.07 s) because
    the taller train needs a taller jump. */
 const JUMP_V_BASE = 945;
@@ -310,7 +333,7 @@ const JUMP_G_BASE = 1500;
    beside her: its horizontal centre is EXACTLY bé cá's centre
    (0 offset, same x, same lane). But now it is BELOW her on
    screen (closer to the camera, LARGER): content height 195
-   local = 1.3x her 150, head ~1 cm (30 local) below her feet,
+   local = 1.18x her 165 draw height, head ~1 cm (30 local) below her feet,
    paws at ~0.97*VH near the bottom of the screen. The wolf is
    drawn BEFORE her, but it does NOT hide behind her any more —
    there is a real gap between her feet and its head, so the
@@ -354,18 +377,37 @@ const CUT_A = 1.2, CUT_B = 1.9, CUT_C = 2.7; // phase boundaries (s)
    speed once the wolf wakes and she runs (phase C on). v12 froze
    them for the first 1.9 s and An felt the rails "arrive late". */
 const CUT_WALK_FRAC = 0.28; // cutscene walk-speed scroll (phases A/B)
-/* Train roof / side colours per train colour. */
+/* Train roof / side colours per train colour. v15: each colour also
+   carries its roof fascia (the thick dark edge of the roof slab,
+   ~17% of the train height — Subway's roofs read as thick slabs)
+   and its dark undercarriage skirt (the gloom the wheels hide in). */
 const TRAIN_COLORS = {
-  red:    { roof: '#7e2a20', side: '#9c2f22' },
-  orange: { roof: '#8f4d14', side: '#b25e1a' },
-  blue:   { roof: '#1d4e7a', side: '#245f92' },
+  red:    { roof: '#7e2a20', side: '#9c2f22', fascia: '#571a12', skirt: '#3d1512' },
+  orange: { roof: '#8f4d14', side: '#b25e1a', fascia: '#63350c', skirt: '#3d2710' },
+  blue:   { roof: '#1d4e7a', side: '#245f92', fascia: '#123352', skirt: '#12283e' },
 };
 const TRAIN_COLOR_LIST = ['red', 'orange', 'blue'];
-/* v14: train surface detail — up close the walls/roof/caps were
-   flat colour slabs ("lỗi hình"). Every surface now carries
-   train-like detail: windows + a cream stripe on both walls, a
-   pale walkway stripe + panel cross-lines on the roof, a band +
-   centre seam on the end caps. */
+/* v15: the rear-face art's OPAQUE content, measured with PIL
+   (alpha bbox) — the red art's content is 338/400 wide (31 px
+   margins), the orange/blue arts' is 396/400 (2 px margins).
+   The face is drawn CROPPED to its content into the body width
+   (0.845w), so the face aligns exactly with the walls: no more
+   0.0775w flange sticking out past the body on either side. */
+const TRAIN_FACE_CROP = {
+  red:    { x: 31, w: 338 },
+  orange: { x: 2,  w: 396 },
+  blue:   { x: 2,  w: 396 },
+};
+/* v15: train surface detail — the v14 detail stays (windows + cream
+   stripe on both walls, pale walkway + panel lines on the roof,
+   band + centre seam on the end caps), and the train becomes a
+   SOLID 3D box: a thick dark fascia along both roof edges + across
+   the far end, a dark skirt along the bottom of each wall, and
+   BIG windows with thick raised frames (Subway: windows ~25% of the
+   wall, not stickers). All new detail is DARK / high-contrast so it
+   survives the game-over screen's blue overlay (the v14.1 lesson:
+   white bands washed out); and it runs the whole length of the
+   train, so it stays visible around the score box. */
 const WIN_FRAME = '#1d3557';  // window frame (dark navy)
 const WIN_GLASS = '#bfe3f2';  // window glass (pale blue)
 const SIDE_STRIPE = '#ffe9b0'; // cream stripe along each wall
@@ -374,9 +416,15 @@ const ROOF_LINE = 'rgba(0,0,0,0.28)'; // roof panel cross-lines
 const CAP_BAND = 'rgba(255,255,255,0.45)';  // end-cap detail band (light — dark bands vanished under the game-over overlay)
 const CAP_BAND2 = 'rgba(255,255,255,0.28)'; // second end-cap band, higher up
 const CAP_SEAM = 'rgba(0,0,0,0.35)';  // end-cap centre seam
-const WIN_W_LOCAL = 20, WIN_H_LOCAL = 30, WIN_CY_LOCAL = 165; // window size + height on the wall
-const WIN_STEP_Z = 35, WIN_FIRST_OFF = 18, WIN_MIN_S = 0.12;  // window spacing along the wall
+const WIN_W_LOCAL = 30, WIN_H_LOCAL = 44, WIN_CY_LOCAL = 165; // v15: was 20x30 — windows ~19% of the 230 wall, close to Subway's ~25%
+const WIN_STEP_Z = 45, WIN_FIRST_OFF = 22, WIN_MIN_S = 0.12;  // window spacing along the wall
+const FASCIA_FRAC = 0.17; // roof edge thickness, fraction of train height (~17%, measured in the video)
+const SKIRT_FRAC = 0.14;  // dark undercarriage band, fraction of wall height
 const ROOF_LINE_STEP_Z = 40, ROOF_LINE_FIRST_OFF = 20, ROOF_LINE_MIN_S = 0.12;
+/* v15: drop shadows, one light (from the top-left, so shadows fall
+   to the bottom-right — short and tight, like the video's noon sun). */
+const SHADOW_TRAIN = 'rgba(15,20,30,0.16)'; // soft dark ground beside / under a train
+const SHADOW_SOFT = 'rgba(60,30,0,0.25)';   // soft ellipse under the fish / wolf / barriers
 
 /* ---------- responsive full-bleed layout ---------- */
 // Logical design height is 800 units; U scales it to the real viewport.
@@ -406,7 +454,9 @@ function resize(w, h){
   PLAYER_HW = PLAYER_HW_BASE * U;
   // Wolf paws: bé cá's feet + 1 cm gap + wolf body height.
   WOLF_FEET_Y = PLAYER_Y + (WOLF_GAP_LOCAL + WOLF_CONTENT_H_BASE) * U;
-  SLIDE_DRAW_H = (SLIDE_H_BASE / SLIDE_CONTENT_FRAC) * U;
+  // v15: the slide pose scales with the fish (165/150 = 1.1x) — draw
+  // size only, the 70-local collision height is unchanged.
+  SLIDE_DRAW_H = (SLIDE_H_BASE / SLIDE_CONTENT_FRAC) * (CHAR_H_BASE / 150) * U;
   const dpr = (typeof window !== 'undefined' && window.devicePixelRatio)
     ? Math.min(2, window.devicePixelRatio) : 1;
   canvas.width = Math.max(1, Math.round(VW * dpr));
@@ -487,6 +537,8 @@ const S = {
   patterns: 0,            // patterns spawned (test hook)
   prevPassable: [],       // passable lanes of the previous row (sequential fairness)
   prevRowOverLanes: [],   // lanes with an overhead barrier in the previous row
+  prevRowTrains: 0,       // v15: trains in the previous row (2 => next row is a breather)
+  nextGapAfter: 120,      // v15: gap to use after the next spawned row (wide after a train row)
   over: false,
   newBest: false,
   cutT: 0,                // cutscene clock (s)
@@ -846,6 +898,18 @@ function spawnPattern(){
     const cands = free.filter(l => !S.prevRowOverLanes.includes(l));
     return cands.length ? cands[0] : null;
   };
+  // v15: BREATHER after a hard wave — after a row with 2 trains the
+  // next row is only a coin line (or nothing): the player gets a
+  // breather, like the video's coins-only stretches between hard
+  // waves. A coin line leaves every lane passable.
+  if (S.prevRowTrains >= 2) {
+    if (free.length) addCoinLine(free[0]);
+    S.prevPassable = [-1, 0, 1];
+    S.prevRowOverLanes = [];
+    S.prevRowTrains = 0;
+    S.nextGapAfter = 120 + Math.random() * 30;
+    return;
+  }
   if (r < 0.20) {
     // one train (sometimes with roof coins)
     if (free.length) { const t = addTrainRow(free[0]); addRoofCoinsFor(t); }
@@ -922,6 +986,14 @@ function spawnPattern(){
   }
   S.prevPassable = passableLanes(row).filter(l => !blocked.includes(l));
   S.prevRowOverLanes = row.filter(o => o.kind === 'over').map(o => o.lane);
+  // v15: pacing — count the trains in the row AFTER the safety net
+  // (it may have dropped one), and widen the gap after a train row
+  // (~200-230, was 120-150) so the next row arrives AFTER the train
+  // has passed: the player sees it coming instead of it hiding
+  // behind the train's body. Rows without a train keep the old spacing.
+  const trainsInRow = row.filter(o => o.kind === 'train').length;
+  S.prevRowTrains = trainsInRow;
+  S.nextGapAfter = trainsInRow > 0 ? 200 + Math.random() * 30 : 120 + Math.random() * 30;
 }
 
 /* ---------- game flow ---------- */
@@ -939,6 +1011,7 @@ function startGame(){
   S.spawnAcc = 0; S.nextGap = 120;  // first pattern after a clear opening stretch
   trackScroll = 0;
   S.patterns = 0; S.prevPassable = []; S.prevRowOverLanes = [];
+  S.prevRowTrains = 0; S.nextGapAfter = 120;
   S.over = false; S.newBest = false;
   S.trainCount = 0; S.slideCount = 0; S.roofRideCount = 0;
   S.coinLineCount = 0; S.coinArcCount = 0; S.roofCoinCount = 0;
@@ -1091,8 +1164,10 @@ function update(dt){
   S.spawnAcc += S.speed * dt;
   if (S.spawnAcc >= S.nextGap) {
     S.spawnAcc = 0;
-    S.nextGap = 120 + Math.random() * 30;
     spawnPattern();
+    // v15: the gap AFTER the row just spawned (wide after a train
+    // row, normal otherwise) — spawnPattern sets nextGapAfter.
+    S.nextGap = S.nextGapAfter;
   }
 
   // move entities toward player (a train stays until its far end passes)
@@ -1273,21 +1348,63 @@ function drawObstacle(e){
   if (!imgReady(img)) return;
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z);
-  // The barrier is lane-wide — the drawn size is the same size the
-  // collision check uses (see obstDims).
+  // v15: the low barrier's DRAWN height (150, sprite + chevron panel)
+  // is taller than its COLLISION height (54.9, obstDims) on purpose —
+  // the panel is visual height only, so the jump timing is unchanged.
   const d = obstDims(e.kind);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(s, s);
+  // v15: soft drop shadow under the barrier (light from the top-left,
+  // so the shadow falls a little to the right) — the barrier SITS on
+  // the track instead of floating above it.
+  ctx.fillStyle = SHADOW_SOFT;
+  ctx.beginPath();
+  ctx.ellipse(8, 4, d.w * 0.45, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.drawImage(img, -d.w / 2, -d.h, d.w, d.h);
+  if (e.kind === 'low') {
+    // v15: a red-white chevron panel above the sprite — the low
+    // barrier now reads TALL from far away (total visual height
+    // ~150 local), its top peeking over a train's roofline, like the
+    // video's tall chevron barriers. VISUAL ONLY: the collision
+    // height stays 54.9 (obstDims), so the jump timing is unchanged.
+    // (panelH is in screen px like d.h — the local space here is
+    // already scaled by U through obstDims.)
+    const panelH = (LOW_BAR_VISUAL_H_LOCAL - LOW_BAR_H_LOCAL) * U;
+    ctx.fillStyle = '#c62828';
+    ctx.fillRect(-d.w / 2, -d.h - panelH, d.w, panelH);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(-d.w / 2, -d.h - panelH, d.w, panelH);
+    ctx.clip();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 16;
+    ctx.beginPath();
+    for (let k = -2; k < 12; k++) {
+      ctx.moveTo(-d.w / 2 + k * 32, -d.h);
+      ctx.lineTo(-d.w / 2 + k * 32 + panelH, -d.h - panelH);
+    }
+    ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = '#7f1d1d';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-d.w / 2, -d.h - panelH, d.w, panelH);
+  }
   ctx.restore();
 }
 function drawTrain(e){
   // A long colourful train occupying one track: the rear-face art
-  // sprite at z (the back of the train), the ROOF as a flat
-  // coloured trapezoid from the rear face toward the horizon, and
+  // sprite at z (the back of the train), the ROOF as a thick
+  // coloured slab from the rear face toward the horizon, and
   // darker side quads. The train fills most of its lane; its roof is
-  // ~260 local units high — reachable by the jump (apex ~298).
+  // ~230 local units high (v15) — reachable by the jump (apex ~298).
+  // v15: the train is a SOLID 3D BOX — a thick roof slab with a dark
+  // fascia along its edges, side walls with a dark undercarriage
+  // skirt and big framed windows, a rear face cropped exactly to the
+  // body width, and a soft drop shadow on the ground. No surface is
+  // a thin board any more: from the side you see only the solid body,
+  // from the roof only the solid roof.
   // v12: while the train passes the player its rear face goes far
   // behind (e.z << 0), where the perspective scale flips negative
   // (scaleAt < 0 for z < -55) and the drawing would mirror
@@ -1311,6 +1428,19 @@ function drawTrain(e){
   // VISIBLE face, not the transparent margins
   const cHalf = 0.4225, cHalf2 = 0.4225;
   const c = TRAIN_COLORS[e.color] || TRAIN_COLORS.red;
+  // v15: the train's drop shadow on the ground — a soft dark band
+  // under the body and beside it to the right (light comes from the
+  // top-left). Drawn first, so the train paints over its inner edge;
+  // the part under the body is hidden by the body itself, the part
+  // beside it darkens the gravel, so the train SITS on the track.
+  ctx.fillStyle = SHADOW_TRAIN;
+  ctx.beginPath();
+  ctx.moveTo(x - w * cHalf, y);
+  ctx.lineTo(x + w * cHalf + LANE_HALF * s * 0.55, y);
+  ctx.lineTo(x2 + w2 * cHalf2 + LANE_HALF * s2 * 0.55, y2);
+  ctx.lineTo(x2 - w2 * cHalf2, y2);
+  ctx.closePath();
+  ctx.fill();
   // v13: the train is a SOLID box — cap both ends so the player
   // can never see into a hollow shell. The far cap closes the
   // front of the train; the near cap closes the cross-section at
@@ -1361,6 +1491,21 @@ function drawTrain(e){
   ctx.lineTo(x2 + w2 * cHalf2, y2 - h2);
   ctx.closePath();
   ctx.fill();
+  // v15: dark undercarriage skirt along the bottom of each wall
+  // (~14% of the wall height) — the wheels hide in this gloom, so
+  // the train reads as sitting on the rails, not floating.
+  const skH = d.h * SKIRT_FRAC;
+  for (const side of [-1, 1]) {
+    const sx0 = x + side * w * cHalf, sx2 = x2 + side * w2 * cHalf2;
+    ctx.fillStyle = c.skirt;
+    ctx.beginPath();
+    ctx.moveTo(sx0, y);
+    ctx.lineTo(sx0, y - skH * s);
+    ctx.lineTo(sx2, y2 - skH * s2);
+    ctx.lineTo(sx2, y2);
+    ctx.closePath();
+    ctx.fill();
+  }
   // v14: wall detail — each wall carries a cream stripe and a row of
   // windows, both following the wall's perspective (interpolated
   // with scaleAt / laneX / groundY at each station z). Without them
@@ -1377,17 +1522,24 @@ function drawTrain(e){
     ctx.lineTo(wallX(z2), groundY(z2) - d.h * s2 * 0.30);
     ctx.closePath();
     ctx.fill();
-    // windows every ~35 z units, upper-middle of the wall
+    // windows every ~45 z units, upper-middle of the wall — v15: BIG
+    // windows (~19% of the wall) with thick raised frames: a dark
+    // frame, a pale top edge (catches the light), pale glass, and a
+    // dark shade under the glass (reads as recessed, not a sticker).
     for (let z = zA + WIN_FIRST_OFF; z < z2 - 8; z += WIN_STEP_Z) {
       const sz = scaleAt(z);
       if (sz < WIN_MIN_S) continue;
       const cx = wallX(z), cy = groundY(z) - WIN_CY_LOCAL * U * sz;
       const ww = WIN_W_LOCAL * U * sz, wh = WIN_H_LOCAL * U * sz;
-      const fr = Math.max(1, 2 * U * sz);
+      const fr = Math.max(1.5, 3.5 * U * sz);
       ctx.fillStyle = WIN_FRAME;
       ctx.fillRect(cx - ww / 2 - fr, cy - wh / 2 - fr, ww + 2 * fr, wh + 2 * fr);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillRect(cx - ww / 2 - fr, cy - wh / 2 - fr, ww + 2 * fr, Math.max(1, 2 * U * sz));
       ctx.fillStyle = WIN_GLASS;
       ctx.fillRect(cx - ww / 2, cy - wh / 2, ww, wh);
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      ctx.fillRect(cx - ww / 2, cy + wh / 2 - Math.max(1, 3 * U * sz), ww, Math.max(1, 3 * U * sz));
     }
   }
   // roof trapezoid: rear top edge -> far top edge
@@ -1397,6 +1549,29 @@ function drawTrain(e){
   ctx.lineTo(x + w * cHalf, y - h);
   ctx.lineTo(x2 + w2 * cHalf2, y2 - h2);
   ctx.lineTo(x2 - w2 * cHalf2, y2 - h2);
+  ctx.closePath();
+  ctx.fill();
+  // v15: the roof is a THICK slab — a dark fascia band hangs below
+  // each long roof edge (~17% of the train height) plus a band
+  // across the far end, so the roof reads as a solid slab with real
+  // thickness, not a thin board laid on the walls. The fascia
+  // overlaps the top of the walls (the slab overhangs them).
+  const fasciaH = d.h * FASCIA_FRAC;
+  ctx.fillStyle = c.fascia;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(x + side * w * cHalf, y - h);
+    ctx.lineTo(x + side * w * cHalf, y - h + fasciaH * s);
+    ctx.lineTo(x2 + side * w2 * cHalf2, y2 - h2 + fasciaH * s2);
+    ctx.lineTo(x2 + side * w2 * cHalf2, y2 - h2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.moveTo(x2 - w2 * cHalf2, y2 - h2);
+  ctx.lineTo(x2 + w2 * cHalf2, y2 - h2);
+  ctx.lineTo(x2 + w2 * cHalf2, y2 - h2 + fasciaH * s2);
+  ctx.lineTo(x2 - w2 * cHalf2, y2 - h2 + fasciaH * s2);
   ctx.closePath();
   ctx.fill();
   // v14: roof detail — a pale walkway stripe down the middle plus
@@ -1422,34 +1597,132 @@ function drawTrain(e){
     ctx.stroke();
   }
   // rear face sprite (the back of the train, facing the player) —
-  // only while the face is still ahead of the player. v13: a
-  // solid backing first — the art has transparent side margins
-  // (content is 338/400 of the width), and without it the two
-  // margin strips show the background through beside the face.
+  // only while the face is still ahead of the player. v15: the
+  // backing is exactly the body width (±0.4225w) and the art is
+  // drawn CROPPED to its opaque content into the same width
+  // (TRAIN_FACE_CROP, measured with PIL) — the face aligns exactly
+  // with the walls, no flange sticking out past the body. The
+  // backing shows through any transparent pixels inside the art.
   if (e.z > 0 && imgReady(img)) {
+    const crop = TRAIN_FACE_CROP[e.color] || TRAIN_FACE_CROP.red;
     ctx.fillStyle = c.side;
-    ctx.fillRect(x - w / 2, y - h, w, h);
-    ctx.drawImage(img, x - w / 2, y - h, w, h);
+    ctx.fillRect(x - w * cHalf, y - h, w * cHalf * 2, h);
+    ctx.drawImage(img, crop.x, 0, crop.w, 600, x - w * cHalf, y - h, w * cHalf * 2, h);
   }
   // v13: the staircase trailing behind the train (nearer the
   // camera than the body, so it draws after it)
   if (e.ramp) drawRamp(e);
 }
-/* v13: the staircase (cầu thang) up the back of a train — the way
-   onto the roof without a perfect jump. Steps rise from the
-   ground at the foot (e.z - RAMP_LEN) to full roof height, flat
-   for the last RAMP_TOP units up to the rear face. The stairs
-   span the middle 60% of the train's width, so the rear face
-   stays visible on both sides. Each step is a solid front face
-   with a bright yellow top edge. Steps already behind the
-   player's plane (z < 0) are skipped — the player has climbed
-   past them. Drawn far -> near (platform first, foot last). */
+/* v15: the staircase (cầu thang) up the back of a train — a SOLID
+   3D staircase now, not floating yellow cards. It has real side
+   walls (stringers) following the stepped profile, real step tops
+   (treads) closing the gaps between the step faces, and a ground
+   shadow so it sits on the track. The steps rise from the ground
+   at the foot (e.z - RAMP_LEN) to full roof height, flat for the
+   last RAMP_TOP units up to the rear face. The stairs span the
+   middle 60% of the train's width, so the rear face stays visible
+   on both sides. Steps already behind the player's plane (z < 0)
+   are skipped — the player has climbed past them. Drawn far ->
+   near (stringers first, then treads, then faces). */
 function drawRamp(e){
   const d = obstDims('train');
-  const roofHLocal = d.h / U; // 260 local (v14)
+  const roofHLocal = d.h / U; // 230 local (v15)
   const rise = RAMP_LEN - RAMP_TOP;      // 48 units of climbing
   const stepLen = rise / RAMP_STEPS;     // 8 units per step
   const wFrac = RAMP_W_FRAC;
+  const footZ = e.z - RAMP_LEN;          // z of the foot (ground)
+  const platZ = e.z - RAMP_TOP;          // z where the flat platform starts
+  const halfW = d.w * wFrac / 2;         // half the stair width, local
+  // stepped top-surface height at z (the tread height there)
+  const profH = (z) => {
+    if (z <= footZ) return 0;
+    if (z >= platZ) return roofHLocal;
+    return roofHLocal * (Math.floor((z - footZ) / stepLen) + 1) / RAMP_STEPS;
+  };
+  // v15: ground shadow under the staircase (light from the top-left)
+  {
+    const za = Math.max(0, footZ), zb = Math.max(0, e.z);
+    if (zb > za) {
+      const sa = scaleAt(za), sb = scaleAt(zb);
+      const xa = laneX(e.lane, za), ya = groundY(za);
+      const xb = laneX(e.lane, zb), yb = groundY(zb);
+      ctx.fillStyle = SHADOW_TRAIN;
+      ctx.beginPath();
+      ctx.moveTo(xa - halfW * sa, ya);
+      ctx.lineTo(xa + halfW * sa + LANE_HALF * sa * 0.3, ya);
+      ctx.lineTo(xb + halfW * sb + LANE_HALF * sb * 0.3, yb);
+      ctx.lineTo(xb - halfW * sb, yb);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  // v15: side stringers — the solid side walls of the staircase,
+  // following the stepped profile (risers + treads) from the foot
+  // to the rear face, then back along the ground. Without them the
+  // staircase reads as floating cards with the gravel showing
+  // through the gaps between the steps. The top outline is STEPPED
+  // (horizontal treads + vertical risers), so it meets each tread
+  // exactly — a diagonal top would leave triangular gaps.
+  for (const side of [-1, 1]) {
+    const pt = (z, hLocal) => {
+      const sz = scaleAt(z);
+      return [laneX(e.lane, z) + side * halfW * sz, groundY(z) - hLocal * U * sz];
+    };
+    const gnd = (z) => {
+      const sz = scaleAt(z);
+      return [laneX(e.lane, z) + side * halfW * sz, groundY(z)];
+    };
+    // top outline, foot -> rear (stepped), clamped to z >= 0
+    const top = [];
+    const z0 = Math.max(0, footZ);
+    top.push(pt(z0, profH(z0)));
+    for (let j = 0; j < RAMP_STEPS; j++) {
+      const zj = footZ + j * stepLen;
+      const zj2 = zj + stepLen;
+      if (zj > z0 && zj < e.z) top.push(pt(zj, roofHLocal * (j + 1) / RAMP_STEPS));
+      if (zj2 > z0 && zj2 <= e.z) top.push(pt(zj2, roofHLocal * (j + 1) / RAMP_STEPS));
+    }
+    if (e.z > z0) top.push(pt(e.z, roofHLocal));
+    if (top.length < 2 || e.z <= z0) continue;
+    // bottom edge, rear -> foot along the ground
+    const bot = [gnd(e.z)];
+    for (let j = RAMP_STEPS; j >= 0; j--) {
+      const zj = footZ + j * stepLen;
+      if (zj >= e.z || zj <= z0) continue;
+      bot.push(gnd(zj));
+    }
+    bot.push(gnd(z0));
+    ctx.fillStyle = RAMP_STRINGER;
+    ctx.beginPath();
+    ctx.moveTo(top[0][0], top[0][1]);
+    for (let i = 1; i < top.length; i++) ctx.lineTo(top[i][0], top[i][1]);
+    for (const p of bot) ctx.lineTo(p[0], p[1]);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // v15: step tops (treads) — the horizontal surface of each step,
+  // a quad from its front face back to the next riser. Without them
+  // the gaps between the step faces show the gravel through (the
+  // ~4 px slits near z=0 in the v14 photos).
+  const tread = (zNear, zFar, hLocal) => {
+    if (zFar <= 0) return;
+    const zn = Math.max(0, zNear);
+    const sn = scaleAt(zn), sf = scaleAt(zFar);
+    const xn = laneX(e.lane, zn), yn = groundY(zn);
+    const xf = laneX(e.lane, zFar), yf = groundY(zFar);
+    ctx.fillStyle = RAMP_TREAD;
+    ctx.beginPath();
+    ctx.moveTo(xn - halfW * sn, yn - hLocal * U * sn);
+    ctx.lineTo(xn + halfW * sn, yn - hLocal * U * sn);
+    ctx.lineTo(xf + halfW * sf, yf - hLocal * U * sf);
+    ctx.lineTo(xf - halfW * sf, yf - hLocal * U * sf);
+    ctx.closePath();
+    ctx.fill();
+  };
+  tread(platZ, e.z, roofHLocal); // flat platform top, up to the rear face
+  for (let j = RAMP_STEPS - 1; j >= 0; j--) {
+    tread(footZ + j * stepLen, footZ + (j + 1) * stepLen, roofHLocal * (j + 1) / RAMP_STEPS);
+  }
   // one step face: a solid rect at its NEAR edge (closest to the
   // player), where its front face is — plus its yellow top edge.
   const face = (zNear, hLocal) => {
@@ -1500,6 +1773,12 @@ function drawWolfChase(){
   const g = wolfGeom();
   ctx.save();
   ctx.globalAlpha = a;
+  // v15: soft drop shadow under the wolf's paws (light from the
+  // top-left, a little to the right) — the wolf RUNS on the track.
+  ctx.fillStyle = SHADOW_SOFT;
+  ctx.beginPath();
+  ctx.ellipse(g.x + 8 * U, g.feetY + 6 * U, g.h * 0.37, 8 * U, 0, 0, Math.PI * 2);
+  ctx.fill();
   drawWolfFrame(img, g.x, g.feetY, g.h, wolfFrameIndex());
   ctx.restore();
 }
@@ -1529,10 +1808,12 @@ function drawCharacter(){
   const surfaceH = S.onTrain ? trainRoofHpx() : (S.jumpT >= 0 ? 0 : rampH());
   const shBase = PLAYER_Y - surfaceH;
   const shScale = Math.max(0.35, 1 - (pH - surfaceH) / (220 * U));
-  const shW = 34 * U * shScale;
+  const shW = (34 * CHAR_H_BASE / 150) * U * shScale; // v15: scales with the bigger fish
   ctx.fillStyle = 'rgba(60,30,0,.28)';
   ctx.beginPath();
-  ctx.ellipse(S.charX, shBase + 6 * U, shW, 8 * U * shScale, 0, 0, Math.PI * 2);
+  // v15: the shadow sits a little to the right of the feet (light
+  // comes from the top-left, like the video).
+  ctx.ellipse(S.charX + 6 * U, shBase + 6 * U, shW, 8 * U * shScale, 0, 0, Math.PI * 2);
   ctx.fill();
   if (isSliding()) {
     // slide/roll: low, feet-first, body horizontal — the slide pose
@@ -1750,6 +2031,7 @@ requestAnimationFrame(loop);
 /* ---------- test hook (not part of gameplay) ---------- */
 window.__becaRun = {
   S,
+  SPAWN_Z, // v15: exposed so the harness's blocked-lane fairness check reads the real value
   start: startGame,
   skipCutscene,
   over: gameOver,
@@ -1772,6 +2054,8 @@ window.__becaRun = {
   layout(){ return { VW, VH, U, CENTER_X, HORIZON_Y, PLAYER_Y, LANE_HALF,
                      CHAR_H, CHAR_W: CHAR_H * (runFrames[0].naturalWidth / runFrames[0].naturalHeight),
                      LOW_BAR_H: lowBarH(), LOW_BAR_W: obstDims('low').w,
+                     LOW_BAR_VISUAL_H: LOW_BAR_VISUAL_H_LOCAL * U,
+                     LOW_BAR_VISUAL_H_LOCAL: LOW_BAR_VISUAL_H_LOCAL,
                      OVER_BAR_H: obstDims('over').h, OVER_BAR_W: obstDims('over').w,
                      OVER_GAP: overGapHpx(), OVER_GAP_LOCAL: overGapLocal(),
                      TRAIN_ROOF_H: trainRoofHpx(), TRAIN_ROOF_H_LOCAL: trainRoofHLocal(),
