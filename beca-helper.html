@@ -127,7 +127,7 @@ function roofStep(S){
  }
  if(phase==='riding'){
   if(!S.onTrain){phase='run';say('fell off / train ended, retry');return;}
-  if(Date.now()-rideT0>400){S.mode='paused';say('frozen riding z='+S.onTrain.z.toFixed(1)+' len='+S.onTrain.len);done('roof ride frozen');}
+  if(Date.now()-rideT0>120){S.mode='paused';say('frozen riding z='+S.onTrain.z.toFixed(1)+' len='+S.onTrain.len);done('roof ride frozen');}
   return;
  }
 }
