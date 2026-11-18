@@ -264,7 +264,7 @@ const LOW_H = 0.55, LOW_VIS_H = 2.6, LOW_W = 2.0;   // rào thấp: va chạm 0.
 const OVER_H = 1.2, OVER_GAP = 0.92, OVER_W = 2.22; // rào trên cao: khe hở 0.92
 const COIN_R = 0.28, COIN_PICKUP = 0.55;
 const SLIDE_H = 0.7, SLIDE_DUR = 0.8, SLIDE_CD = 0.5;
-const JUMP_V = 12.4, JUMP_G = 22;   // đỉnh 3.49, bay ~1.13s
+const JUMP_V = 13.9, JUMP_G = 22;   // đỉnh 4.39, bay ~1.26s — cao hơn nóc 3.2 tới 1.19 (mẫu Subway: nhảy phải dư biên để đáp nóc dễ; trước đây đỉnh 3.49 chỉ hơn nóc 0.29 nên cửa sổ đáp chỉ 0.35s)
 const SPEED_BASE = 10, SPEED_MAX = 24, SPEED_RAMP = 0.35;
 const SPAWN_Z = -85, HIT_Z = 0.9;  // z âm = phía trước (xa camera)
 const RAMP_LEN = 6, RAMP_TOP = 1.2, RAMP_CHANCE = 0.5, RAMP_STEPS = 6;
@@ -362,6 +362,7 @@ const S = {
   mode: 'menu', time: 0, runTime: 0, speed: SPEED_BASE, distance: 0,
   score: 0, coins: 0, mult: 1, best: 0,
   lane: 0, charX: 0,
+  y: 0, vy: 0, landT: -1,   // y = chiều cao chân (mặt đỡ), vy = vận tốc dọc; landT = timer squash khi đáp
   jumpT: -1, jumpBase: 0, slideT: -1, slideCd: 0,
   onTrain: null, entities: [],
   spawnAcc: 0, nextGap: 12, patterns: 0,
@@ -376,8 +377,8 @@ function saveBest(){ try { localStorage.setItem('becaRunBest', String(S.best)); 
 
 /* ---------- three.js: renderer / scene / camera / lights ---------- */
 const canvas = $('gl');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // cap 1.5 (trước đây 2): điện thoại DPR 3 render nặng, rớt fps → di chuyển giật
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -387,10 +388,10 @@ renderer.toneMappingExposure = 1.12;
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x9fd8f5, 42, 96);
 const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 300);
-let camX = 0, lookX = 0;
+let camX = 0, lookX = 0, camLift = 0;
 function placeCamera(){
-  camera.position.set(camX, CAM_Y, CAM_Z);
-  camera.lookAt(lookX, LOOK_Y, LOOK_Z);
+  camera.position.set(camX, CAM_Y + camLift, CAM_Z);
+  camera.lookAt(lookX, LOOK_Y + camLift, LOOK_Z);
 }
 placeCamera();
 
@@ -817,15 +818,27 @@ function wolfAlpha(){
   return Math.max(0, WOLF_CHASE_T - S.runTime);
 }
 function jumpApex(){ return (JUMP_V * JUMP_V) / (2 * JUMP_G); }
-function jumpHeight(){
-  if (S.jumpT < 0) return 0;
-  const t = S.jumpT;
-  return S.jumpBase + Math.max(0, JUMP_V * t - 0.5 * JUMP_G * t * t);
+function jumpHeight(){ return S.jumpT >= 0 ? S.y : 0; } // compat: chiều cao chân khi đang bay
+// Mặt đỡ dưới chân người chơi, tính MỖI KHUNG theo vị trí thật (charX) —
+// mẫu chuẩn của endless runner kiểu Subway: nhân vật luôn "dính" mặt đỡ
+// bên dưới (đất / nóc tàu / cầu thang vàng). Nóc tàu chỉ là mặt đỡ khi
+// chân đã ở tầm nóc (đang cưỡi hoặc đang rơi xuống nóc); còn ở dưới đất
+// thì tàu là bức tường, không phải sàn — nên không bao giờ "dịch" lên nóc.
+function supportInfo(){
+  let h = 0, train = null;
+  const r = rampH();
+  if (r > h){ h = r; train = null; }
+  for (const e of S.entities){
+    if (e.kind !== 'train') continue;
+    if (Math.abs(S.charX - e.lane * LANE_X) >= TRAIN_W / 2 + CHAR_HW) continue;
+    if (e.z >= -0.15 && e.z - e.len <= 0.15 && TRAIN_H > h && S.y >= TRAIN_H - 0.05){ h = TRAIN_H; train = e; }
+  }
+  return { h, train };
 }
 function rampTrainUnderPlayer(){
   for (const e of S.entities){
     if (e.kind !== 'train' || !e.ramp) continue;
-    if (e.lane !== S.lane) continue;
+    if (Math.abs(S.charX - e.lane * LANE_X) >= 0.75 + CHAR_HW) continue;
     if (e.z < -RAMP_LEN || e.z > 0) continue;
     return e;
   }
@@ -839,25 +852,15 @@ function rampH(){
   return TRAIN_H * Math.max(0, f);
 }
 function isSliding(){ return S.slideT >= 0; }
-function trainUnderPlayer(){
-  for (const e of S.entities){
-    if (e.kind !== 'train') continue;
-    if (e.lane !== S.lane) continue;
-    if (e.z >= -HIT_Z && e.z - e.len <= 0) return e;
-  }
-  return null;
-}
+function trainUnderPlayer(){ return supportInfo().train; }
 function landOnTrain(t){
   if (S.onTrain !== t) S.roofRideCount++;
   S.onTrain = t;
+  S.y = TRAIN_H; S.vy = 0;
   S.jumpT = -1;
   S.jumpBase = 0;
 }
-function playerH(){
-  if (S.onTrain) return TRAIN_H;
-  if (S.jumpT >= 0) return jumpHeight();
-  return rampH();
-}
+function playerH(){ return S.y; }
 function obstDims(kind){
   if (kind === 'train') return { w: TRAIN_W, h: TRAIN_H };
   if (kind === 'over') return { w: OVER_W, h: OVER_H };
@@ -886,10 +889,14 @@ function moveRight(){ if (S.mode !== 'playing') return; if (S.lane < 1) S.lane++
 function doJump(){
   if (S.mode !== 'playing') return;
   if (S.slideT >= 0) return;
-  if (S.jumpT < 0){
-    S.jumpBase = playerH();
+  if (S.jumpT < 0 && S.vy === 0){
+    // Nhảy từ bất cứ mặt đỡ nào: đất, nóc tàu, cầu thang. Vì đáp nóc chỉ
+    // xảy ra khi đang RƠI (vy<=0) nên nhảy từ nóc không còn bị hủy ngay
+    // khung sau như trước (lỗi cũ: vòng va chạm đáp lại ngay lên tàu vừa nhảy).
+    S.jumpBase = S.y;
     S.onTrain = null;
     S.jumpT = 0;
+    S.vy = JUMP_V;
   }
 }
 function doSlide(){
@@ -1065,6 +1072,7 @@ function startGame(){
   S.runTime = 0; S.speed = SPEED_BASE; S.distance = 0;
   S.score = 0; S.coins = 0; S.mult = 1;
   S.lane = 0; S.charX = 0;
+  S.y = 0; S.vy = 0; S.landT = -1;
   S.jumpT = -1; S.jumpBase = 0; S.slideT = -1; S.slideCd = 0;
   S.onTrain = null;
   S.spawnAcc = 0; S.nextGap = 12;
@@ -1192,15 +1200,37 @@ function update(dt){
     p.s.material.opacity = 0.32 * (1 - f);
   }
 
-  if (S.jumpT >= 0){
-    S.jumpT += dt;
-    const bal = JUMP_V * S.jumpT - 0.5 * JUMP_G * S.jumpT * S.jumpT;
-    if (bal <= 0 && S.jumpT > 0.1){
-      S.jumpT = -1;
-      const t = trainUnderPlayer();
-      if (t) landOnTrain(t);
-      S.jumpBase = 0;
+  // --- vật lý dọc (mẫu Subway): vận tốc dọc + mặt đỡ tính MỖI KHUNG ---
+  // Trước đây nhảy là đường cong theo thời gian, đáp nóc chỉ xảy ra đúng
+  // khung mặt sau tàu tới (hoặc khi nhảy kết thúc) → nhảy từ nóc bị hủy
+  // ngay, nhảy sớm một chút là đâm dù sắp đáp được nóc. Giờ: chân luôn
+  // "dính" mặt đỡ bên dưới; đang rơi mà chân chạm mặt đỡ là đáp; hết nóc
+  // thì rơi tự do xuống đất thay vì dịch tức thì.
+  const sup = supportInfo();
+  if (S.jumpT < 0){
+    // đang đứng trên mặt đỡ
+    if (S.y > sup.h + 0.01){
+      // mặt đỡ tụt khỏi chân (hết nóc tàu / hết cầu thang) → rơi tự do
+      S.jumpT = 0; S.jumpBase = S.y; S.vy = 0; S.onTrain = null;
+    } else {
+      if (S.y < sup.h) S.y = sup.h; // mặt đỡ dâng lên (leo cầu thang) → dính lên
+      S.onTrain = sup.train;
     }
+  } else {
+    // đang bay
+    S.jumpT += dt;
+    S.vy -= JUMP_G * dt;
+    S.y += S.vy * dt;
+    if (S.vy <= 0 && S.y <= sup.h){
+      // đáp xuống mặt đỡ (đất / nóc tàu / cầu thang)
+      S.y = sup.h; S.vy = 0; S.jumpT = -1; S.jumpBase = 0; S.landT = 0;
+      if (sup.train) landOnTrain(sup.train); else S.onTrain = null;
+    } else if (S.y < sup.h){
+      // mặt đỡ dâng lên chạm chân khi đang bay (cầu thang tới) → dính lên
+      S.y = sup.h; S.vy = 0; S.jumpT = -1; S.jumpBase = 0; S.landT = 0;
+      S.onTrain = sup.train;
+    }
+    if (S.y < 0){ S.y = 0; S.vy = 0; S.jumpT = -1; S.jumpBase = 0; S.onTrain = null; }
   }
   if (S.slideT >= 0){
     S.slideT += dt;
@@ -1208,13 +1238,6 @@ function update(dt){
   }
   if (S.slideCd > 0) S.slideCd -= dt;
   if (S.slideT >= 0 && rampH() > 0){ S.slideT = -1; S.slideCd = 0; }
-
-  if (S.onTrain){
-    const t = trainUnderPlayer();
-    if (!t) S.onTrain = null;
-    else if (t !== S.onTrain) S.onTrain = t;
-    if (S.onTrain && S.onTrain.z - S.onTrain.len > 0) S.onTrain = null;
-  }
 
   S.spawnAcc += S.speed * dt;
   if (S.spawnAcc >= S.nextGap){
@@ -1225,6 +1248,7 @@ function update(dt){
 
   const dz = S.speed * dt;
   for (const e of S.entities){
+    e.pz = e.z; // z khung trước — để phát hiện mặt sau tàu quét qua người chơi
     e.z += dz;
     e.group.position.z = e.z;
     if (e.kind === 'coin') e.group.rotation.y += dt * 3;
@@ -1238,11 +1262,25 @@ function update(dt){
   for (const e of S.entities){
     if (e.taken || e.passed) continue;
     if (e.kind === 'train'){
-      if (e.z < -HIT_Z || e.z - e.len > 0) continue;
-      if (S.onTrain) continue;
+      // Chỉ còn một cách đâm tàu: mặt sau (tường cao 3.2) quét qua vị trí
+      // người chơi trong khi chân còn dưới nóc. Đáp nóc giờ do mặt đỡ mỗi
+      // khung lo (đang rơi qua mặt nóc là đáp), không còn "đúng khung mặt
+      // sau tới mới được đáp" như trước. Phát hiện bằng lần quét qua z=0
+      // (kể cả khi dt giật làm mặt sau nhảy qua cửa sổ) — KHÔNG dùng cửa
+      // sổ rộng [-0.9, 0.9]: cửa sổ rộng phạt oan người nhảy sớm đúng lúc
+      // (chân đã trên 3.15 khi tường thật sự tới nhưng chưa đủ cao lúc
+      // tường còn cách 0.9 đơn vị).
       if (S.lane !== e.lane) continue;
-      if (pH >= TRAIN_H - 0.04){ landOnTrain(e); }
-      else { S.lastHit = 'train lane=' + e.lane + ' z=' + e.z.toFixed(1) + ' len=' + e.len + ' pH=' + pH.toFixed(2) + ' onTrain=' + S.onTrain + ' myLane=' + S.lane + crashSnapshot(); gameOver(); return; }
+      if (S.onTrain) continue;
+      const crossed = (e.pz !== undefined && e.pz < 0.1 && e.z >= 0.1) || (e.z > -0.35 && e.z < 0.35);
+      if (crossed && pH < TRAIN_H - 0.05){
+        S.lastHit = 'train lane=' + e.lane + ' z=' + e.z.toFixed(1) + ' len=' + e.len + ' pH=' + pH.toFixed(2) + ' onTrain=' + S.onTrain + ' myLane=' + S.lane + crashSnapshot(); gameOver(); return;
+      }
+      // lưới an toàn: thân tàu đã trùm qua người chơi mà chân vẫn dưới nóc
+      // (đổi làn vào tàu sau khi mặt sau đã qua) thì cũng tính đâm.
+      if (e.z >= 0.9 && e.z - e.len < 0 && pH < TRAIN_H - 0.05){
+        S.lastHit = 'train-under lane=' + e.lane + ' z=' + e.z.toFixed(1) + ' len=' + e.len + ' pH=' + pH.toFixed(2) + crashSnapshot(); gameOver(); return;
+      }
       continue;
     }
     if (Math.abs(e.z) > HIT_Z) continue;
@@ -1309,16 +1347,25 @@ function showCaption(key, bang){
   capBang.style.display = bang ? 'block' : 'none';
   capEl.classList.remove('hidden');
 }
-function syncSprites(){
-  // camera lerp mượt theo làn — KHÔNG rung, KHÔNG giật.
+function syncSprites(dt){
+  dt = dt || 1 / 60;
+  // camera lerp theo dt (trước đây *0.08 mỗi khung nên 30fps thì camera ì
+  // gấp đôi 60fps trong khi nhân vật lerp nhanh → trông giật, không mượt).
   // follow 0.45 + look 0.55: nhân vật ở làn bên vẫn trong khung (~0.77),
-  // đồng thời tàu ở làn đối diện phía trước vẫn thấy được.
+  // đồng thời tàu ở làn đối diện phía trước vẫn thấy được. KHÔNG rung.
+  const camK = Math.min(1, dt * 7);
   const targetCamX = S.charX * 0.45;
-  camX += (targetCamX - camX) * 0.08;
+  camX += (targetCamX - camX) * camK;
   if (Math.abs(targetCamX - camX) < 0.005) camX = targetCamX;
   const targetLookX = S.charX * 0.55;
-  lookX += (targetLookX - lookX) * 0.08;
+  lookX += (targetLookX - lookX) * camK;
   if (Math.abs(targetLookX - lookX) < 0.005) lookX = targetLookX;
+  // camera nâng theo chiều cao nhân vật khi nhảy cao (mẫu Subway) — không
+  // có là đầu nhân vật bay khỏi màn hình ở đỉnh nhảy từ nóc (chân 7.59,
+  // mép trên khung hình chỉ tới ~7.5). Lerp mượt, tối đa +1.8; chạy dưới
+  // đất/nóc thì không nâng (giữ nguyên góc nhìn đã duyệt).
+  const liftTarget = Math.min(1.8, Math.max(0, playerH() - 2.5) * 0.45);
+  camLift += (liftTarget - camLift) * Math.min(1, dt * 6);
   placeCamera();
 
   if (S.mode === 'menu'){
@@ -1416,6 +1463,10 @@ function syncSprites(){
     const lean = 0.08 + norm * 0.14 + (wolfVisible() ? 0.05 : 0);
     charSprite.material.rotation = Math.sin(S.time * bobF) * 0.05 + lean;
   }
+  // đáp đất/nóc: squash nhẹ 0.22s cho cảm giác chạm đất; đang bay: stretch nhẹ
+  if (S.landT >= 0){ S.landT += dt; if (S.landT > 0.22) S.landT = -1; }
+  const sq = S.landT >= 0 ? 1 - 0.16 * (1 - S.landT / 0.22) : (S.jumpT >= 0 ? 1.05 : 1);
+  charSprite.scale.y *= sq; charSprite.scale.x *= (2 - sq);
   charBlob.visible = true;
   charBlob.position.set(S.charX + 0.06, surfaceH + 0.02, 0.1);
   charBlob.scale.set(1.1 * shScale, 0.9 * shScale, 1);
@@ -1442,7 +1493,7 @@ function loop(now){
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
   if (!frozen) update(dt);
-  syncSprites();
+  syncSprites(dt);
   renderer.render(scene, camera);
   if (firstFrame){
     firstFrame = false;
@@ -1481,7 +1532,26 @@ function stageRoof(){
   S.nextGap = 1e9; S.runTime = 10;
   S.score = 340; S.coins = 12; S.distance = 3400; updateHUD();
   const rt = addTrainEnt(0, 2, 25, 'red', false);
-  S.onTrain = rt;
+  S.onTrain = rt; S.y = TRAIN_H; S.vy = 0; S.jumpT = -1;
+}
+function stageTransfer(){
+  // 2 nóc kề nhau khác làn, người chơi đang đứng trên nóc đỏ
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 10;
+  S.score = 340; S.coins = 12; S.distance = 3400; updateHUD();
+  const rt = addTrainEnt(0, 2, 25, 'red', false);
+  addTrainEnt(1, 0, 25, 'blue', false);
+  S.onTrain = rt; S.y = TRAIN_H; S.vy = 0; S.jumpT = -1;
+}
+function stageRoofJump(){
+  // đang nhảy từ nóc đỏ sang nóc xanh kề bên (giữa không trung)
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 10;
+  S.score = 360; S.coins = 14; S.distance = 3600; updateHUD();
+  addTrainEnt(0, 2, 25, 'red', false);
+  addTrainEnt(1, 0, 25, 'blue', false);
+  S.y = 5.6; S.vy = 4; S.jumpT = 0.45; S.jumpBase = TRAIN_H;
+  S.lane = 1; S.charX = 1.2;
 }
 function stageRamp(){
   startGame(); skipCutscene();
@@ -1516,12 +1586,13 @@ function stageJump(){
   S.nextGap = 1e9; S.runTime = 10;
   S.score = 260; S.coins = 11; S.distance = 2600; updateHUD();
   addTrainEnt(0, -2, 22, 'blue', false);
-  S.jumpT = 0.55; S.jumpBase = 0;
+  S.jumpT = 0.55; S.jumpBase = 0; S.y = 4.32; S.vy = 1.8; // y/vy khớp đường nhảy mới (đỉnh 4.39) tại t=0.55
 }
 function stageCutA(){ startGame(); S.cutT = 0.6; }
 function stageCutC(){ startGame(); S.cutT = 2.2; }
 const STAGES = { play: stagePlay, roof: stageRoof, ramp: stageRamp, over: stageOver,
                  chase: stageChase, slide: stageSlide, jump: stageJump,
+                 transfer: stageTransfer, roofjump: stageRoofJump,
                  cutA: stageCutA, cutC: stageCutC };
 if (P.get('stage') && STAGES[P.get('stage')]) STAGES[P.get('stage')]();
 if (P.get('lane') && S.mode === 'playing'){
@@ -1559,8 +1630,9 @@ function autotestBot(){
   // thời điểm hành động tỉ lệ với tốc độ: nhảy/trượt sao cho đỉnh nhảy
   // (0.56s) / giữa nhịp trượt rơi đúng lúc chướng ngại vật tới.
   // nhảy rào thấp: cửa sổ dist ∈ (0.04, 1.08)×speed; nhảy lên nóc tàu:
-  // cửa sổ hẹp hơn, dist ∈ (0.40, 0.73)×speed (chân phải ≥3.16 khi mặt
-  // sau tàu tới). Ngoài cửa sổ → né sang làn trống thay vì nhảy muộn.
+  // cửa sổ dist ∈ (0.35, 0.95)×speed (đỉnh 4.39, chân phải ≥3.16 khi mặt
+  // sau tàu tới; đáp nóc liên tục nên nhảy sớm vẫn đáp được). Ngoài cửa
+  // sổ → né sang làn trống thay vì nhảy muộn.
   const react = S.speed * 0.55;
   const me = row.find(e => e.lane === S.lane && e.kind !== 'coin');
   const freeLanes = [-1, 0, 1].filter(l => !row.some(e => e.lane === l && e.kind !== 'coin') && !laneBlockedNow(l));
@@ -1598,11 +1670,31 @@ function autotestBot(){
     if (dist < react && nearestFree !== null && stepToward(nearestFree)) return;
     if (canSlide && dist <= react) doSlide();
   } else if (me.kind === 'train'){
-    if (S.onTrain) return; // đang trên nóc, cứ chạy
-    if (canJump && dist <= react && dist > react * 0.8){ doJump(); return; }
+    if (S.onTrain){
+      // sắp hết nóc (đầu tàu còn <8 đơn vị nữa là qua mặt) → nhảy sang nóc kề
+      const cur = S.onTrain;
+      if (cur.z - cur.len > -8){
+        const roofAt = (l) => S.entities.find(e => e.kind === 'train' && e.lane === l && e.z >= -0.15 && e.z - e.len <= 0.15);
+        const adj = [-1, 1].map(d => S.lane + d).filter(l => l >= -1 && l <= 1)
+          .find(l => roofAt(l) && !S.entities.some(e => (e.kind === 'low' || e.kind === 'over') && e.lane === l && Math.abs(e.z) < 3));
+        if (adj !== undefined){
+          if (adj < S.lane) moveLeft(); else moveRight();
+          doJump();
+          return;
+        }
+      }
+      return; // đang trên nóc, cứ chạy
+    }
+    // đang bay trên tầm nóc thì giữ nguyên hướng, đáp lên nóc (đừng né
+    // giữa không trung làm mất lần cưỡi nóc — bot hồi quy cần tập cưỡi nóc;
+    // né chỉ còn khi chân đã xuống dưới tầm nóc)
+    if (S.jumpT >= 0 && S.y >= TRAIN_H - 0.05) return;
+    // nhảy lên nóc: đỉnh mới 4.39 + đáp nóc liên tục nên cửa sổ rộng
+    // dist ∈ (0.35, 0.95)×speed (trước đây (0.40, 0.73)×speed, đỉnh 3.49)
+    if (canJump && dist <= S.speed * 0.95 && dist > S.speed * 0.35){ doJump(); return; }
     if (dist < react && nearestFree !== null && stepToward(nearestFree)) return;
     // KHÔNG nhảy muộn: nhảy khi tàu đã quá gần thì chân chưa đủ cao
-    // (cần ≥3.16) → đâm chắc; né là lựa chọn duy nhất còn lại
+    // (cần ≥3.16 khi mặt sau tới) → đâm chắc; né là lựa chọn duy nhất còn lại
   }
 }
 if (P.get('autotest')){
@@ -1625,11 +1717,113 @@ if (P.get('autotest')){
   document.title = 'AUTOTEST ' + S.mode + ' score=' + S.score;
 }
 
+/* ---------- movetest (?movetest=1): kiểm chứng 3 động tác An chê —
+   (1) nhảy từ đất lên nóc, (2) đổi làn khi đang đứng trên nóc,
+   (3) nhảy từ nóc này sang nóc khác kề nhau khác làn — cộng thêm
+   (4) nhảy tại chỗ trên nóc không bị hủy (lỗi cũ), (5) hết nóc thì rơi
+   xuống đất an toàn, (6) đổi làn đủ nhanh, (7) hồi quy bot ngẫu nhiên.
+   Chạy đồng bộ, bước 1/60 cố định, ghi kết quả JSON vào #movetest. */
+function moveTestReset(){
+  startGame(); skipCutscene();
+  S.nextGap = 1e9; S.runTime = 0;
+}
+function moveTestStep(n){ for (let i = 0; i < n; i++){ if (S.mode !== 'playing') break; update(1 / 60); } }
+function runMoveTests(){
+  frozen = true;
+  const out = [];
+  const T = (name, fn) => { try { out.push(Object.assign({ name }, fn())); } catch (err){ out.push({ name, pass: false, err: String(err && err.message || err) }); } };
+  // T1: nhảy từ đất lên nóc, thử 5 thời điểm nhảy (cửa sổ rộng sau khi sửa)
+  [0.35, 0.5, 0.65, 0.8, 0.95].forEach((f) => {
+    T('T1 ground->roof jump@' + f + 'x speed', () => {
+      moveTestReset();
+      addTrainEnt(0, -30, 20, 'red', false);
+      let jumped = false, landed = false;
+      for (let i = 0; i < 240 && S.mode === 'playing'; i++){
+        const t = S.entities.find(e => e.kind === 'train');
+        if (!jumped && t && -t.z <= S.speed * f){ doJump(); jumped = true; }
+        update(1 / 60);
+        if (S.onTrain && Math.abs(S.y - TRAIN_H) < 0.05){ landed = true; break; }
+      }
+      return { pass: jumped && landed && S.mode === 'playing', jumped, landed, mode: S.mode, y: +S.y.toFixed(2) };
+    });
+  });
+  // T2: đổi làn khi đang đứng trên nóc (2 tàu kề nhau cùng z)
+  T('T2 lane change on roof', () => {
+    moveTestReset();
+    const t0 = addTrainEnt(0, 2, 25, 'red', false);
+    const t1 = addTrainEnt(1, 2, 25, 'blue', false);
+    S.onTrain = t0; S.y = TRAIN_H; S.vy = 0; S.jumpT = -1; S.lane = 0; S.charX = 0;
+    moveTestStep(30);
+    moveRight();
+    moveTestStep(30);
+    return { pass: S.onTrain === t1 && Math.abs(S.y - TRAIN_H) < 0.05 && S.mode === 'playing',
+      onTrainLane: S.onTrain ? S.onTrain.lane : null, y: +S.y.toFixed(2), mode: S.mode };
+  });
+  // T3: nhảy từ nóc này sang nóc khác kề nhau khác làn, 5 thời điểm
+  [0, 10, 20, 30, 45].forEach(fr => {
+    T('T3 roof->roof jump after ' + fr + 'f', () => {
+      moveTestReset();
+      const t0 = addTrainEnt(0, 2, 25, 'red', false);
+      const t1 = addTrainEnt(1, 0, 25, 'blue', false);
+      S.onTrain = t0; S.y = TRAIN_H; S.vy = 0; S.jumpT = -1; S.lane = 0; S.charX = 0;
+      moveTestStep(fr);
+      doJump(); moveRight();
+      let landed = false;
+      for (let i = 0; i < 120 && S.mode === 'playing'; i++){ update(1 / 60); if (S.onTrain === t1){ landed = true; break; } }
+      return { pass: landed && Math.abs(S.y - TRAIN_H) < 0.05 && S.mode === 'playing', landed, mode: S.mode, y: +S.y.toFixed(2) };
+    });
+  });
+  // T4: nhảy tại chỗ trên nóc — không bị hủy ngay (lỗi cũ)
+  T('T4 jump in place on roof', () => {
+    moveTestReset();
+    const t0 = addTrainEnt(0, 2, 25, 'red', false);
+    S.onTrain = t0; S.y = TRAIN_H; S.vy = 0; S.jumpT = -1; S.lane = 0; S.charX = 0;
+    doJump();
+    moveTestStep(90);
+    return { pass: S.mode === 'playing' && S.onTrain === t0 && Math.abs(S.y - TRAIN_H) < 0.05,
+      mode: S.mode, onTrainLane: S.onTrain ? S.onTrain.lane : null, y: +S.y.toFixed(2) };
+  });
+  // T5: hết nóc thì rơi xuống đất an toàn, không chết
+  T('T5 fall off roof end', () => {
+    moveTestReset();
+    const t0 = addTrainEnt(0, 2, 12, 'red', false);
+    S.onTrain = t0; S.y = TRAIN_H; S.vy = 0; S.jumpT = -1; S.lane = 0; S.charX = 0;
+    moveTestStep(180);
+    return { pass: S.mode === 'playing' && S.onTrain === null && Math.abs(S.y) < 0.05, mode: S.mode, y: +S.y.toFixed(2) };
+  });
+  // T6: đổi làn đủ nhanh (charX tới đích trong 15 khung)
+  T('T6 lane change speed', () => {
+    moveTestReset();
+    moveRight();
+    let frames = -1;
+    for (let i = 0; i < 60; i++){ update(1 / 60); if (Math.abs(S.charX - LANE_X) < 0.05){ frames = i + 1; break; } }
+    return { pass: frames > 0 && frames <= 15, frames };
+  });
+  // T7: hồi quy — bot chơi ngẫu nhiên 3 lượt 60s, spawn BẬT lại (nextGap=12)
+  // để bot thật sự gặp tàu/rào (không thì chạy đường trống, vô nghĩa)
+  [1, 2, 3].forEach(k => {
+    T('T7 autotest 60s #' + k, () => {
+      moveTestReset();
+      S.nextGap = 12;
+      for (let i = 0; i < 3600; i++){ if (S.mode !== 'playing') break; autotestBot(); update(1 / 60); }
+      return { pass: S.mode === 'playing' || S.runTime > 30, mode: S.mode, runTime: +S.runTime.toFixed(1), score: S.score, roofRides: S.roofRideCount };
+    });
+  });
+  const passed = out.filter(r => r.pass).length;
+  const res = { total: out.length, passed, tests: out };
+  const div = document.createElement('div');
+  div.id = 'movetest';
+  div.textContent = 'MOVETEST ' + JSON.stringify(res);
+  document.body.appendChild(div);
+  document.title = 'MOVETEST ' + passed + '/' + out.length;
+}
+if (P.get('movetest')) runMoveTests();
+
 /* ---------- test hook ---------- */
 window.__becaRun3d = {
   S, start: startGame, skipCutscene, over: gameOver,
   moveLeft, moveRight, jump: doJump, slide: doSlide,
-  spawnPattern, trainUnderPlayer, landOnTrain,
+  spawnPattern, trainUnderPlayer, landOnTrain, addTrainEnt, addEnt, autotestBot,
   jumpHeight, jumpApex, isSliding, playerH, rampH,
   runFrame: runFrameIndex, wolfFrame: wolfFrameIndex,
   wolfVisible, wolfAlpha,
@@ -1639,7 +1833,7 @@ window.__becaRun3d = {
     WOLF_Z: WOLF_Z_CFG, CAM_Y, CAM_Z, LOOK_Y, LOOK_Z, FOV, MULT_CAP, RAMP_LEN, RAMP_TOP }; },
   assets(){ return Object.assign({}, texReady); },
   setSpeed(v){ S.speed = v; },
-  step(dt){ update(dt); syncSprites(); renderer.render(scene, camera); },
+  step(dt){ update(dt); syncSprites(dt); renderer.render(scene, camera); },
   stage(name){ if (STAGES[name]) STAGES[name](); },
   freeze(v){ frozen = !!v; },
 };
