@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>test</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#000}iframe{border:0;width:100vw;height:100vh;display:block}#t{position:fixed;left:6px;top:6px;z-index:9;color:#fff;background:rgba(0,0,0,.55);font:12px sans-serif;padding:3px 6px;border-radius:4px}</style></head><body><div id=t></div><iframe id=f src="beca-run.html"></iframe><script>
+var scene=(location.hash||'#rear-red').slice(1);document.getElementById('t').textContent=scene;
+var W=document.getElementById('f'),done=false;
+W.addEventListener('load',function(){var iv=setInterval(function(){var g;try{g=W.contentWindow.__becaRun}catch(e){}if(!g||!g.S)return;clearInterval(iv);setTimeout(function(){stage(g)},400);},100);});
+function stage(g){var S=g.S;if(done)return;done=true;
+if(scene==='cut-d'){g.start();setInterval(function(){S.cutT=3.1;},16);return;}
+if(scene==='wolf'){g.start();g.skipCutscene();setInterval(function(){S.runTime=1;S.spawnAcc=0;S.entities=[];S.distance=100;},16);return;}
+g.start();g.skipCutscene();
+var L=g.layout();
+function T(lane,z,len,color,ramp){return{kind:'train',lane:lane,z:z,len:len,color:color,ramp:!!ramp}}
+function C(lane,z,h){return{kind:'coin',lane:lane,z:z,h:h||0}}
+function B(lane,z){return{kind:'low',lane:lane,z:z}}
+function O(lane,z){return{kind:'over',lane:lane,z:z}}
+var lane=1;if(scene==='side'||scene==='roof'||scene==='shadows')lane=0;
+S.runTime=0;S.lane=lane;S.charX=g.viewCX()+lane*L.LANE_HALF;S.onTrain=null;S.jumpT=-1;S.slideT=-1;S.spawnAcc=0;S.distance=200;
+var ents=[];
+if(scene==='rear-red')ents=[T(0,12,200,'red')];
+else if(scene==='rear-orange')ents=[T(0,12,200,'orange')];
+else if(scene==='rear-blue')ents=[T(0,12,200,'blue')];
+else if(scene==='rear-ramp')ents=[T(0,55,200,'red',true)];
+else if(scene==='side')ents=[T(-1,-60,260,'blue'),B(1,40)];
+else if(scene==='roof'){var t=T(0,-30,260,'red',true);ents=[t,C(0,40,230),C(0,90,230),C(0,140,230)];S.onTrain=t;}
+else if(scene==='stairs')ents=[T(0,55,200,'orange',true)];
+else if(scene==='past')ents=[T(0,90,180,'red'),B(1,300),C(-1,290),T(1,320,200,'blue')];
+else if(scene==='far')ents=[B(0,260),C(0,300),C(0,330)];
+else if(scene==='shadows')ents=[T(-1,20,200,'blue'),B(1,45),O(0,120)];
+else if(scene==='over-train')ents=[T(0,35,200,'red')];
+else if(scene==='over-blue')ents=[T(0,35,200,'blue',true)];
+else ents=[T(0,12,200,'red')];
+S.entities=ents;
+if(scene==='over-train'||scene==='over-blue'){S.score=50;S.coins=3;S.distance=500;g.over();return;}
+S.mode='freeze';
+}
+</script></body></html>
