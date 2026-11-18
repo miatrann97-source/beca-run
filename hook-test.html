@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><title>hook-test</title><style>html,body{margin:0;height:100%;overflow:hidden;background:#000}iframe{width:100vw;height:100vh;border:0;display:block}</style></head><body><iframe id="g" src="beca-run.html"></iframe><script>
+const q=new URLSearchParams(location.search),scene=q.get('scene')||'side';
+const f=document.getElementById('g');
+function T(s){document.title=s;}
+f.addEventListener('load',()=>{
+ const w=f.contentWindow,H=w.__becaRun;
+ if(!H){T('NO HOOK');return;}
+ const S=H.S;
+ function freeze(){S.mode='menu';T(scene+' FROZEN z='+(S.entities[0]?S.entities[0].z.toFixed(1):'-')+' h='+(H.playerH?H.playerH().toFixed(0):'-')+' track='+H.trackScroll().toFixed(1));}
+ function train(lane,z,len,color,ramp){const t={kind:'train',lane:lane,z:z,len:len,color:color,ramp:!!ramp};S.entities=[t];return t;}
+ function startPlay(){H.start();H.skipCutscene();}
+ setTimeout(()=>{
+  try{
+   if(scene==='cut'){H.start();const t0=performance.now();const iv=setInterval(()=>{const el=(performance.now()-t0)/1000;T('cut t='+el.toFixed(2)+' track='+H.trackScroll().toFixed(1)+' mode='+S.mode);if(el>5)clearInterval(iv);},250);return;}
+   if(scene==='side'){startPlay();train(1,-15,220,'red');freeze();return;}
+   if(scene==='front'){startPlay();train(0,12,200,'blue');freeze();return;}
+   if(scene==='roof'){startPlay();const t=train(0,5,220,'orange');S.onTrain=t;S.lane=0;freeze();return;}
+   if(scene==='jump'){startPlay();train(0,20,220,'blue');H.jump();const iv=setInterval(()=>{const h=H.playerH();T('jump h='+h.toFixed(0)+' apex='+H.JUMP_APEX);if(h>240){clearInterval(iv);freeze();}},30);return;}
+   if(scene==='stairs'){startPlay();train(0,55,200,'orange',true);const iv=setInterval(()=>{const h=H.playerH();const z=S.entities[0]?S.entities[0].z:0;T('stairs h='+h.toFixed(0)+' z='+z.toFixed(1));if(h>90&&h<200){clearInterval(iv);freeze();}},30);return;}
+   if(scene==='over'){startPlay();train(1,-8,200,'blue');H.over();T('over FROZEN');return;}
+   T('unknown scene');
+  }catch(e){T('ERR '+e.message);}
+ },400);
+});
+</script></body></html>
