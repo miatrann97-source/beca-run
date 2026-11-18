@@ -7,7 +7,7 @@ f.addEventListener('load',function(){
 var w=f.contentWindow;var H=w.__becaRun;if(!H){document.title='NO HOOK';return;}
 H.start();H.skipCutscene();
 var S=H.S;
-function stage(){S.entities=[{kind:'train',lane:0,z:-40,len:200,color:'red',ramp:false}];S.lane=1;}
+function stage(){S.entities=[{kind:'train',lane:-1,z:-40,len:200,color:'red',ramp:false},{kind:'train',lane:1,z:-40,len:200,color:'blue',ramp:false}];S.lane=0;}
 stage();
 var iv=setInterval(stage,100);
 setTimeout(function(){clearInterval(iv);stage();H.over();},3000);
