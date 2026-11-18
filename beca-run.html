@@ -159,14 +159,14 @@ const wrap = document.getElementById('wrap');
 const SPEED_BASE = 85;      // was 55 — the race starts fast
 const SPEED_MAX  = 230;     // was 150
 const SPEED_RAMP = 2.2;     // was 1.15 — speed builds quickly
-const OBST_SCALE = 1.4;     // obstacles ~1.4x bigger than before
+const OBST_SCALE = 1.6;     // obstacles 1.6x — a bit bigger again, per An
 const CHAR_H_BASE = 185;    // character height, logical px (was 150) — big and prominent
-const LOW_BAR_H_BASE = 81;  // 58 * 1.4
-const OVER_GAP_BASE = 101;  // 72 * 1.4
+const LOW_BAR_H_BASE = 92.8;  // 58 * 1.6 — matches the drawn barrier height
+const OVER_GAP_BASE = 115.2;  // 72 * 1.6 — gap under the overhead bar
+const SLIDE_H_BASE = 80;    // slide-pose sprite height — low, never squashed
 const SPAWN_Z = 230;        // spawn distance ahead (was 210 — a touch more warning at race speed)
 const HIT_Z = 9;            // z window where collisions count
 const SLIDE_T = 0.75;       // slide duration (s)
-const SLIDE_SY = 0.42;      // slide squash
 
 /* ---------- responsive full-bleed layout ---------- */
 // Logical design height is 800 units; U scales it to the real viewport.
@@ -226,6 +226,8 @@ const runFrames = [
   loadImg('art/run-frame4.png'),      // frame 4: legs together
 ];
 const spriteFront = loadImg('art/beca-run-front.png');
+/* proper slide pose — a real low slide, never squashed flat */
+const imgSlide = loadImg('art/slide-pose.png');
 
 /* ---------- state ---------- */
 const S = {
@@ -351,17 +353,12 @@ function spawnPattern(){
     S.entities.push({ kind:'tall', lane:lanes[0], z:SPAWN_Z });
     S.entities.push({ kind:'tall', lane:lanes[1], z:SPAWN_Z });
     for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[2], z:SPAWN_Z + 6 + i*12, h:0 });
-  } else if (r < 0.82) {
-    // two low barriers, coins on the free lane
-    S.entities.push({ kind:'low', lane:lanes[0], z:SPAWN_Z });
-    S.entities.push({ kind:'low', lane:lanes[1], z:SPAWN_Z });
-    for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[2], z:SPAWN_Z + i*12, h:0 });
-  } else if (r < 0.90) {
-    // triple: tall + low + over, one per lane — always a way through
-    // (jump the low lane or slide the over lane)
+  } else if (r < 0.84) {
+    // single tall block + coins on another lane
+    // (double-low and triple rows removed — An wants the track sparser,
+    //  with clear breathing room between obstacle groups)
     S.entities.push({ kind:'tall', lane:lanes[0], z:SPAWN_Z });
-    S.entities.push({ kind:'low',  lane:lanes[1], z:SPAWN_Z });
-    S.entities.push({ kind:'over', lane:lanes[2], z:SPAWN_Z });
+    for (let i = 0; i < 4; i++) S.entities.push({ kind:'coin', lane:lanes[1], z:SPAWN_Z + i*12, h:0 });
   } else {
     // coin arc: jump for the middle coin
     const L = lanes[0];
@@ -370,12 +367,7 @@ function spawnPattern(){
     S.entities.push({ kind:'coin', lane:L, z:SPAWN_Z + 24, h:0  });
     S.entities.push({ kind:'low',  lane:lanes[1], z:SPAWN_Z + 6 });
   }
-  // staggered follow-up row (a single obstacle — always leaves 2 free lanes)
-  if (Math.random() < 0.30) {
-    const kinds = ['low', 'over', 'tall'];
-    S.entities.push({ kind: kinds[Math.floor(Math.random() * 3)],
-                      lane: lanes[Math.floor(Math.random() * 3)], z: SPAWN_Z + 85 });
-  }
+  // (no staggered follow-up row any more — An wants the track sparser)
   // side decoration (palm / umbrella / hut), more often than before
   if (Math.random() < 0.9) {
     S.decor.push({ side: Math.random() < 0.5 ? -1 : 1, z: SPAWN_Z + 20,
@@ -395,7 +387,7 @@ function startGame(){
   S.lane = 0; S.charX = CENTER_X;
   S.jumpT = -1; S.slideT = -1;
   S.entities = []; S.decor = [];
-  S.spawnAcc = 0; S.nextGap = 58;
+  S.spawnAcc = 0; S.nextGap = 95;  // first pattern after a clear opening stretch
   S.patterns = 0;
   S.over = false; S.newBest = false;
   menuEl.classList.add('hidden');
@@ -453,11 +445,12 @@ function update(dt){
     if (S.slideT > SLIDE_T) S.slideT = -1;
   }
 
-  // spawn patterns by distance — denser than before (mean gap 69, was 91)
+  // spawn patterns by distance — sparser now (mean gap ~108, was 69)
+  // so the track feels open with breathing room between obstacle groups
   S.spawnAcc += S.speed * dt;
   if (S.spawnAcc >= S.nextGap) {
     S.spawnAcc = 0;
-    S.nextGap = 58 + Math.random() * 22;
+    S.nextGap = 95 + Math.random() * 25;
     spawnPattern();
   }
 
@@ -546,7 +539,7 @@ function drawObstacle(e){
   const x = laneX(e.lane, e.z);
   const y = groundY(e.z);
   // local size (at s=1), matched to each 3D image's aspect ratio —
-  // all obstacles ~1.4x bigger than before
+  // all obstacles 1.6x bigger than the original
   const h = (e.kind === 'low' ? 58 : e.kind === 'over' ? 188 : 183) * OBST_SCALE * U;
   const w = h * (img.naturalWidth / img.naturalHeight);
   ctx.save();
@@ -556,32 +549,34 @@ function drawObstacle(e){
   ctx.restore();
 }
 function drawCharacter(){
-  // run-cycle: 4 frames cycle while running so the legs visibly pump
-  const fi = runFrameIndex();
-  const img = runFrames[fi];
+  const sliding = isSliding();
+  // Sliding: a REAL slide-pose sprite (low, stretched, feet first) — never
+  // the run frame squashed flat. Running/jumping: the 4-frame run cycle
+  // so the legs visibly pump.
+  const img = sliding ? imgSlide : runFrames[runFrameIndex()];
   if (!imgReady(img)) return;
   const norm = speedNorm();
   const bobFreq = 9 + S.speed * 0.05;      // bob quickens with speed
   const bobAmp = (3 + norm * 2) * U;       // bob grows a little with speed
-  const bob = Math.sin(S.time * bobFreq) * bobAmp;
+  const bob = sliding ? 0 : Math.sin(S.time * bobFreq) * bobAmp;
   const pH = jumpHeight();
-  const sliding = isSliding();
-  const h = CHAR_H * (sliding ? SLIDE_SY : 1);
-  const w = CHAR_H * (img.naturalWidth / img.naturalHeight);
-  const feetY = PLAYER_Y - pH + (sliding ? 0 : bob);
-  // leans forward more as the race builds — a real race, not a jog
+  const h = sliding ? SLIDE_H_BASE * U : CHAR_H;
+  const w = h * (img.naturalWidth / img.naturalHeight);
+  const feetY = PLAYER_Y - pH + bob;
+  // leans forward more as the race builds — a real race, not a jog.
+  // The slide pose already leans back on its own, so no extra tilt.
   const lean = 0.05 + norm * 0.10;
-  const tilt = Math.sin(S.time * bobFreq) * 0.03 + lean;
-  // soft shadow
+  const tilt = sliding ? 0 : Math.sin(S.time * bobFreq) * 0.03 + lean;
+  // soft shadow (wider while sliding — the pose is stretched out)
   const shScale = Math.max(0.35, 1 - pH / (220 * U));
+  const shW = (sliding ? 50 : 34) * U * shScale;
   ctx.fillStyle = 'rgba(60,30,0,.28)';
   ctx.beginPath();
-  ctx.ellipse(S.charX, PLAYER_Y + 6 * U, 34 * U * shScale, 8 * U * shScale, 0, 0, Math.PI*2);
+  ctx.ellipse(S.charX, PLAYER_Y + 6 * U, shW, 8 * U * shScale, 0, 0, Math.PI*2);
   ctx.fill();
   ctx.save();
   ctx.translate(S.charX, feetY);
   ctx.rotate(tilt);
-  if (sliding) ctx.translate(0, CHAR_H * (1 - SLIDE_SY));
   ctx.drawImage(img, -w/2, -h, w, h);
   ctx.restore();
 }
@@ -663,7 +658,8 @@ window.__becaRun = {
   runFrame: runFrameIndex,
   speedNorm, speedLines: speedLineState,
   layout(){ return { VW, VH, U, CENTER_X, HORIZON_Y, PLAYER_Y, LANE_HALF,
-                     CHAR_H, LOW_BAR_H, OVER_GAP, SPEED_BASE, SPEED_MAX, OBST_SCALE }; },
+                     CHAR_H, LOW_BAR_H, OVER_GAP, SPEED_BASE, SPEED_MAX, OBST_SCALE,
+                     SLIDE_H: SLIDE_H_BASE * U }; },
   resize,
   assets(){
     return {
@@ -671,6 +667,7 @@ window.__becaRun = {
       low: imgReady(imgLow), over: imgReady(imgOver), tall: imgReady(imgTall),
       palm: imgReady(imgPalm), umbrella: imgReady(imgUmbrella), hut: imgReady(imgHut),
       run: runFrames.map(imgReady),
+      slide: imgReady(imgSlide),
     };
   },
   setSpeed(v){ S.speed = v; },
