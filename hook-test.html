@@ -15,7 +15,7 @@ f.addEventListener('load',()=>{
    if(scene==='side'){startPlay();train(1,-15,220,'red');freeze();return;}
    if(scene==='front'){startPlay();train(0,12,200,'blue');freeze();return;}
    if(scene==='roof'){startPlay();const t=train(0,5,220,'orange');S.onTrain=t;S.lane=0;freeze();return;}
-   if(scene==='jump'){startPlay();train(0,20,220,'blue');H.jump();const iv=setInterval(()=>{const h=H.playerH();T('jump h='+h.toFixed(0)+' apex='+H.JUMP_APEX);if(h>240){clearInterval(iv);freeze();}},30);return;}
+   if(scene==='jump'){startPlay();train(0,80,220,'blue');H.jump();const iv=setInterval(()=>{const h=H.playerH();if(S.onTrain){clearInterval(iv);T('jump LANDED');freeze();return;}T('jump h='+h.toFixed(0)+' apex='+H.JUMP_APEX);if(h>240){clearInterval(iv);freeze();}},30);return;}
    if(scene==='stairs'){startPlay();train(0,55,200,'orange',true);const iv=setInterval(()=>{const h=H.playerH();const z=S.entities[0]?S.entities[0].z:0;T('stairs h='+h.toFixed(0)+' z='+z.toFixed(1));if(h>90&&h<200){clearInterval(iv);freeze();}},30);return;}
    if(scene==='over'){startPlay();train(1,-8,200,'blue');H.over();T('over FROZEN');return;}
    T('unknown scene');
