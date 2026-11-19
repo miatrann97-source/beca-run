@@ -1463,9 +1463,9 @@ function syncSprites(dt){
     const lean = 0.08 + norm * 0.14 + (wolfVisible() ? 0.05 : 0);
     charSprite.material.rotation = Math.sin(S.time * bobF) * 0.05 + lean;
   }
-  // đáp đất/nóc: squash nhẹ 0.22s cho cảm giác chạm đất; đang bay: stretch nhẹ
+  // đáp đất/nóc: squash nhẹ 0.22s cho cảm giác chạm đất; đang bay: giữ nguyên tỉ lệ (không stretch)
   if (S.landT >= 0){ S.landT += dt; if (S.landT > 0.22) S.landT = -1; }
-  const sq = S.landT >= 0 ? 1 - 0.16 * (1 - S.landT / 0.22) : (S.jumpT >= 0 ? 1.05 : 1);
+  const sq = S.landT >= 0 ? 1 - 0.16 * (1 - S.landT / 0.22) : 1;
   charSprite.scale.y *= sq; charSprite.scale.x *= (2 - sq);
   charBlob.visible = true;
   charBlob.position.set(S.charX + 0.06, surfaceH + 0.02, 0.1);
