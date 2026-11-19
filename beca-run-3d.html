@@ -264,7 +264,11 @@ const LOW_H = 0.55, LOW_VIS_H = 2.6, LOW_W = 2.0;   // rào thấp: va chạm 0.
 const OVER_H = 1.2, OVER_GAP = 0.92, OVER_W = 2.22; // rào trên cao: khe hở 0.92
 const COIN_R = 0.28, COIN_PICKUP = 0.55;
 const SLIDE_H = 0.7, SLIDE_DUR = 0.8, SLIDE_CD = 0.5;
-const JUMP_V = 13.9, JUMP_G = 22;   // đỉnh 4.39, bay ~1.26s — cao hơn nóc 3.2 tới 1.19 (mẫu Subway: nhảy phải dư biên để đáp nóc dễ; trước đây đỉnh 3.49 chỉ hơn nóc 0.29 nên cửa sổ đáp chỉ 0.35s)
+const JUMP_V = 17.5, JUMP_G_UP = 28, JUMP_G_DOWN = 44; // đỉnh 5.47, bay ~1.12s — bật nhanh (V cao), rơi nặng (G rơi 1.6x G bay lên) cho cảm giác có lực, đáp dứt khoát; đỉnh cao giữ cửa sổ đáp nóc rộng (T1@0.95 vẫn pass, biên 0.23)
+const BIKE_V = 9;            // tốc độ riêng cộng thêm (xe chạy ngược chiều nên tiến tới nhanh hơn chướng ngại tĩnh)
+const BIKE_W = 0.9, BIKE_H = 1.35; // xe thấp (~1.35m, người lái nằm rạp) — nhảy qua được như rào thấp (ngưỡng LOW_H)
+const BIKE_MIN_DIST = 300;   // chỉ xuất hiện sau 300m
+const BIKE_COLORS = ['red', 'blue', 'white'];
 const SPEED_BASE = 10, SPEED_MAX = 24, SPEED_RAMP = 0.35;
 const SPAWN_Z = -85, HIT_Z = 0.9;  // z âm = phía trước (xa camera)
 const RAMP_LEN = 6, RAMP_TOP = 1.2, RAMP_CHANCE = 0.5, RAMP_STEPS = 6;
@@ -368,7 +372,7 @@ const S = {
   spawnAcc: 0, nextGap: 12, patterns: 0,
   prevPassable: [], prevRowOverLanes: [], prevRowTrains: 0, nextGapAfter: 13,
   over: false, newBest: false, cutT: 0,
-  trainCount: 0, slideCount: 0, roofRideCount: 0,
+  trainCount: 0, slideCount: 0, roofRideCount: 0, bikeCount: 0,
   coinLineCount: 0, coinArcCount: 0, roofCoinCount: 0,
   smoke: [], smokeAcc: 0,
 };
@@ -467,6 +471,13 @@ const blobTex = canvasTex(128, 128, (g, w, h) => {
 const smokeTex = canvasTex(128, 128, (g, w, h) => {
   const gr = g.createRadialGradient(64, 64, 6, 64, 64, 60);
   gr.addColorStop(0, 'rgba(179,162,132,0.55)'); gr.addColorStop(1, 'rgba(179,162,132,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, w, h);
+});
+const glowTex = canvasTex(128, 128, (g, w, h) => {
+  const gr = g.createRadialGradient(64, 64, 2, 64, 64, 62);
+  gr.addColorStop(0, 'rgba(255,244,190,1)');
+  gr.addColorStop(0.35, 'rgba(255,230,140,0.55)');
+  gr.addColorStop(1, 'rgba(255,220,120,0)');
   g.fillStyle = gr; g.fillRect(0, 0, w, h);
 });
 
@@ -688,7 +699,23 @@ const smokePool = [];
 for (let i = 0; i < 14; i++){
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, opacity: 0 }));
   s.visible = false; scene.add(s);
-  smokePool.push({ s, life: 0, max: 1 });
+  smokePool.push({ s, life: 0, max: 1, vx: 0, vy: 0 });
+}
+// Bụi tung lên lúc đáp đất/nóc (nhảy dứt khoát): 6 hạt từ smokePool, bay ngang + hơi lên rồi tan trong ~0.45s
+function spawnLandDust(x, y){
+  let n = 0;
+  for (const p of smokePool){
+    if (n >= 6) break;
+    if (p.life > 0) continue;
+    n++;
+    p.life = 0.0001; p.max = 0.35 + Math.random() * 0.15;
+    p.s.visible = true;
+    p.s.position.set(x + (Math.random() - 0.5) * 0.7, y + 0.10 + Math.random() * 0.1, 0.15 + Math.random() * 0.25);
+    p.s.scale.set(0.35, 0.35, 1);
+    p.s.material.opacity = 0.5; p.op = 0.5;
+    p.vx = (Math.random() - 0.5) * 1.8;
+    p.vy = 0.4 + Math.random() * 0.7;
+  }
 }
 
 /* ---------- builder: tàu / rào / xu / cầu thang (hộp 3D thật) ---------- */
@@ -770,6 +797,60 @@ function buildCoinGroup(){
   return g;
 }
 
+/* ---------- xe máy chạy ngược chiều ---------- */
+const BIKE_MATS = {
+  red:   { body: new THREE.MeshStandardMaterial({ color: 0xc62828, roughness: 0.35, metalness: 0.35 }), jacket: new THREE.MeshStandardMaterial({ color: 0x263238, roughness: 0.9 }),  helmet: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 }) },
+  blue:  { body: new THREE.MeshStandardMaterial({ color: 0x1565c0, roughness: 0.35, metalness: 0.35 }), jacket: new THREE.MeshStandardMaterial({ color: 0x263238, roughness: 0.9 }),  helmet: new THREE.MeshStandardMaterial({ color: 0xfdd835, roughness: 0.3 }) },
+  white: { body: new THREE.MeshStandardMaterial({ color: 0xeceff1, roughness: 0.35, metalness: 0.2 }),  jacket: new THREE.MeshStandardMaterial({ color: 0xb71c1c, roughness: 0.9 }),  helmet: new THREE.MeshStandardMaterial({ color: 0x1565c0, roughness: 0.3 }) },
+};
+const bikeMetalMat = new THREE.MeshStandardMaterial({ color: 0x9aa5b1, roughness: 0.35, metalness: 0.7 });
+const bikeSkinMat = new THREE.MeshStandardMaterial({ color: 0xe8b98a, roughness: 0.8 });
+const bikeLightMat = new THREE.MeshBasicMaterial({ color: 0xfff6c0 });
+const bikeGlowMat = new THREE.SpriteMaterial({ map: glowTex, color: 0xffe9a0, transparent: true, opacity: 0.95, depthWrite: false });
+// Gốc nhóm = ĐẦU XE (đèn pha) tại z=0, thân kéo dài về phía -z (đi ngược chiều về phía người chơi).
+// Người lái nằm rạp kiểu sport-bike nên xe thấp ~1.35m — nhảy qua được như rào thấp (ngưỡng LOW_H).
+function buildBikeGroup(color){
+  const m = BIKE_MATS[color] || BIKE_MATS.red;
+  const g = new THREE.Group();
+  const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.12, 18);
+  const wheels = [];
+  for (const wz of [-0.45, -1.35]){
+    const w = new THREE.Mesh(wheelGeo, MAT.dark);
+    w.rotation.z = Math.PI / 2; // trục bánh nằm ngang (theo X)
+    w.position.set(0, 0.32, wz);
+    w.castShadow = true;
+    g.add(w); wheels.push(w);
+  }
+  box(0.5, 0.32, 1.05, m.body, 0, 0.62, -0.9, g);      // thân xe / bình xăng + yên
+  box(0.38, 0.28, 0.6, MAT.dark, 0, 0.42, -0.85, g);    // động cơ
+  box(0.08, 0.55, 0.08, bikeMetalMat, 0, 0.55, -0.32, g); // phuộc trước
+  box(0.56, 0.06, 0.06, MAT.dark, 0, 0.98, -0.35, g);   // tay lái
+  const light = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 10), bikeLightMat);
+  light.position.set(0, 0.72, 0.02); g.add(light);            // đèn pha (hình cầu sáng)
+  const glow = new THREE.Sprite(bikeGlowMat);
+  glow.scale.set(1.15, 1.15, 1); glow.position.set(0, 0.72, 0.14); g.add(glow); // quầng sáng đèn pha
+  const pl = new THREE.PointLight(0xffe6a0, 8, 12, 2);
+  pl.position.set(0, 0.85, 0.5); g.add(pl);                  // đèn pha chiếu sáng mặt đường phía trước
+  const torso = box(0.44, 0.28, 0.55, m.jacket, 0, 0.98, -1.0, g); torso.rotation.x = -0.35; // thân người nằm rạp
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 14, 12), bikeSkinMat);
+  head.position.set(0, 1.08, -0.72); g.add(head);             // đầu
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 12), m.helmet);
+  helmet.position.set(0, 1.10, -0.72); g.add(helmet);         // mũ bảo hiểm
+  box(0.22, 0.08, 0.05, MAT.dark, 0, 1.10, -0.50, g);    // kính chắn mũ (visor) — hơi nhô khỏi mặt trước mũ (mũ r=0.19, mặt trước z=-0.53)
+  for (const sx of [-1, 1]){
+    const arm = box(0.08, 0.08, 0.5, m.jacket, sx * 0.2, 1.0, -0.58, g); arm.rotation.x = 0.35; // tay với tới tay lái
+    const leg = box(0.09, 0.45, 0.09, MAT.dark, sx * 0.19, 0.65, -1.1, g); leg.rotation.x = 0.12; // chân gác bàn đạp
+  }
+  g.userData.wheels = wheels;
+  g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+function addBikeEnt(lane, z, color){
+  const e = { kind: 'bike', lane, z, color: color || BIKE_COLORS[Math.floor(Math.random() * BIKE_COLORS.length)], v: BIKE_V };
+  addEnt(e); S.bikeCount++;
+  return e;
+}
+
 /* ---------- entities ---------- */
 function addTrainEnt(lane, z, len, color, ramp){
   const e = { kind: 'train', lane, z, len, color, ramp: !!ramp };
@@ -784,6 +865,7 @@ function addEnt(e){
   if (e.kind === 'low') e.group = buildLowGroup();
   else if (e.kind === 'over') e.group = buildOverGroup();
   else if (e.kind === 'coin') e.group = buildCoinGroup();
+  else if (e.kind === 'bike') e.group = buildBikeGroup(e.color);
   e.group.position.set(e.lane * LANE_X, (e.h || 0) + (e.kind === 'coin' ? COIN_R : 0), e.z);
   scene.add(e.group);
   S.entities.push(e);
@@ -817,7 +899,7 @@ function wolfAlpha(){
   if (S.runTime < WOLF_CHASE_T - 1) return 1;
   return Math.max(0, WOLF_CHASE_T - S.runTime);
 }
-function jumpApex(){ return (JUMP_V * JUMP_V) / (2 * JUMP_G); }
+function jumpApex(){ return (JUMP_V * JUMP_V) / (2 * JUMP_G_UP); }
 function jumpHeight(){ return S.jumpT >= 0 ? S.y : 0; } // compat: chiều cao chân khi đang bay
 // Mặt đỡ dưới chân người chơi, tính MỖI KHUNG theo vị trí thật (charX) —
 // mẫu chuẩn của endless runner kiểu Subway: nhân vật luôn "dính" mặt đỡ
@@ -865,6 +947,7 @@ function obstDims(kind){
   if (kind === 'train') return { w: TRAIN_W, h: TRAIN_H };
   if (kind === 'over') return { w: OVER_W, h: OVER_H };
   if (kind === 'coin') return { w: COIN_R * 2, h: COIN_R * 2 };
+  if (kind === 'bike') return { w: BIKE_W, h: LOW_H }; // xe thấp — nhảy qua được như rào thấp
   return { w: LOW_W, h: LOW_H };
 }
 function lanePassable(lane, row){
@@ -877,6 +960,7 @@ function lanePassable(lane, row){
   if (overlaps.length > 1) return false;
   const k = overlaps[0].kind;
   if (k === 'low') return true;
+  if (k === 'bike') return true; // xe máy thấp — nhảy qua được như rào thấp
   if (k === 'over') return true;
   if (k === 'train') return overlaps[0].ramp === true || jumpApex() >= TRAIN_H + 0.25;
   return false;
@@ -1005,7 +1089,24 @@ function spawnPattern(){
     S.nextGapAfter = 20 + Math.random() * 3;
     return;
   }
-  if (r < 0.20){
+  // xe máy chạy ngược chiều: chỉ sau 300m, ~22% hàng, luôn đi một mình trong hàng của nó.
+  // Làn phải trống chướng ngại phía trước — xe đuổi kịp chướng ngại cùng làn ở z0 < catchZ
+  // (catchZ = (15*BIKE_V - 85*speed)/(speed+BIKE_V): tốc độ 10 → -37.6, tốc độ 24 → -57.7);
+  // các hàng spawn sau xe ở sau lưng và chậm hơn nên không bao giờ đuổi kịp xe.
+  let bikeRow = false;
+  if (S.distance > BIKE_MIN_DIST && Math.random() < 0.22){
+    const catchZ = (15 * BIKE_V - 85 * S.speed) / (S.speed + BIKE_V);
+    const bikeLanes = [-1, 0, 1].filter(l => !blocked.includes(l) &&
+      !S.entities.some(e => e.kind !== 'coin' && e.lane === l && e.z < catchZ));
+    if (bikeLanes.length){
+      const lane = bikeLanes[Math.floor(Math.random() * bikeLanes.length)];
+      row.push(addBikeEnt(lane, SPAWN_Z, BIKE_COLORS[Math.floor(Math.random() * BIKE_COLORS.length)]));
+      bikeRow = true;
+    }
+  }
+  if (bikeRow){
+    // xe đi một mình — không thêm chướng ngại khác vào hàng này
+  } else if (r < 0.20){
     if (free.length){ const t = addTrainRow(free[0]); addRoofCoinsFor(t); }
     else addLow(lanes[0]);
   } else if (r < 0.34){
@@ -1059,7 +1160,7 @@ function spawnPattern(){
   S.prevRowOverLanes = row.filter(o => o.kind === 'over').map(o => o.lane);
   const trainsInRow = row.filter(o => o.kind === 'train').length;
   S.prevRowTrains = trainsInRow;
-  S.nextGapAfter = trainsInRow > 0 ? 20 + Math.random() * 3 : 13 + Math.random() * 4;
+  S.nextGapAfter = bikeRow ? 24 + Math.random() * 3 : (trainsInRow > 0 ? 20 + Math.random() * 3 : 13 + Math.random() * 4);
 }
 
 /* ---------- game flow ---------- */
@@ -1186,7 +1287,7 @@ function update(dt){
         p.s.visible = true;
         p.s.position.set(S.charX + (Math.random() - 0.5) * 1.1, 0.15, WOLF_Z_CFG + Math.random() * 0.3);
         p.s.scale.set(0.3, 0.3, 1);
-        p.s.material.opacity = 0.32;
+        p.s.material.opacity = 0.32; p.op = 0.32; p.vx = 0; p.vy = 0;
       }
     }
   }
@@ -1196,8 +1297,10 @@ function update(dt){
     if (p.life >= p.max){ p.life = 0; p.s.visible = false; continue; }
     const f = p.life / p.max;
     p.s.position.z += S.speed * 0.9 * dt;
+    p.s.position.x += (p.vx || 0) * dt;
+    p.s.position.y += (p.vy || 0) * dt;
     p.s.scale.set(0.3 + f * 0.6, 0.3 + f * 0.6, 1);
-    p.s.material.opacity = 0.32 * (1 - f);
+    p.s.material.opacity = (p.op || 0.32) * (1 - f);
   }
 
   // --- vật lý dọc (mẫu Subway): vận tốc dọc + mặt đỡ tính MỖI KHUNG ---
@@ -1219,15 +1322,18 @@ function update(dt){
   } else {
     // đang bay
     S.jumpT += dt;
-    S.vy -= JUMP_G * dt;
+    // trọng lực bất đối xứng: bay lên nhẹ hơn (Gu) để vọt cao, rơi xuống nặng hơn (Gd) cho cảm giác có lực, đáp dứt khoát
+    S.vy -= (S.vy > 0 ? JUMP_G_UP : JUMP_G_DOWN) * dt;
     S.y += S.vy * dt;
     if (S.vy <= 0 && S.y <= sup.h){
       // đáp xuống mặt đỡ (đất / nóc tàu / cầu thang)
       S.y = sup.h; S.vy = 0; S.jumpT = -1; S.jumpBase = 0; S.landT = 0;
+      spawnLandDust(S.charX, sup.h);
       if (sup.train) landOnTrain(sup.train); else S.onTrain = null;
     } else if (S.y < sup.h){
       // mặt đỡ dâng lên chạm chân khi đang bay (cầu thang tới) → dính lên
       S.y = sup.h; S.vy = 0; S.jumpT = -1; S.jumpBase = 0; S.landT = 0;
+      spawnLandDust(S.charX, sup.h);
       S.onTrain = sup.train;
     }
     if (S.y < 0){ S.y = 0; S.vy = 0; S.jumpT = -1; S.jumpBase = 0; S.onTrain = null; }
@@ -1249,9 +1355,13 @@ function update(dt){
   const dz = S.speed * dt;
   for (const e of S.entities){
     e.pz = e.z; // z khung trước — để phát hiện mặt sau tàu quét qua người chơi
-    e.z += dz;
+    e.z += dz + (e.kind === 'bike' ? (e.v || BIKE_V) * dt : 0); // xe máy chạy ngược chiều: tốc độ riêng cộng thêm vào tốc độ cuộn
     e.group.position.z = e.z;
     if (e.kind === 'coin') e.group.rotation.y += dt * 3;
+    if (e.kind === 'bike' && e.group.userData.wheels){
+      const w = (S.speed + (e.v || BIKE_V)) * dt / 0.32; // lăn bánh theo tốc độ mặt đất tương đối
+      for (const wh of e.group.userData.wheels) wh.rotation.x += w;
+    }
   }
   for (const e of S.entities.slice()){
     if (e.kind === 'train' ? (e.z - e.len > 15) : (e.z > 15)) removeEnt(e);
@@ -1294,12 +1404,15 @@ function update(dt){
     }
     const d = obstDims(e.kind);
     if (Math.abs(S.charX - e.lane * LANE_X) >= d.w / 2 + CHAR_HW) continue;
-    if (e.kind === 'low' || e.kind === 'over'){
+    if (e.kind === 'low' || e.kind === 'over' || e.kind === 'bike'){
       if (e.z > 0){ e.passed = true; continue; }
     }
     if (S.onTrain) continue;
     if (e.kind === 'low'){
       if (pH < LOW_H - 0.06){ S.lastHit = 'low lane=' + e.lane + ' z=' + e.z.toFixed(1) + ' pH=' + pH.toFixed(2) + ' jumpT=' + S.jumpT.toFixed(2) + ' myLane=' + S.lane + ' charX=' + S.charX.toFixed(2) + crashSnapshot(); gameOver(); return; }
+      e.passed = true;
+    } else if (e.kind === 'bike'){
+      if (pH < LOW_H - 0.06){ S.lastHit = 'bike lane=' + e.lane + ' z=' + e.z.toFixed(1) + ' pH=' + pH.toFixed(2) + ' jumpT=' + S.jumpT.toFixed(2) + ' myLane=' + S.lane + ' charX=' + S.charX.toFixed(2) + crashSnapshot(); gameOver(); return; }
       e.passed = true;
     } else if (e.kind === 'over'){
       if (sliding){ e.passed = true; }
@@ -1361,10 +1474,10 @@ function syncSprites(dt){
   lookX += (targetLookX - lookX) * camK;
   if (Math.abs(targetLookX - lookX) < 0.005) lookX = targetLookX;
   // camera nâng theo chiều cao nhân vật khi nhảy cao (mẫu Subway) — không
-  // có là đầu nhân vật bay khỏi màn hình ở đỉnh nhảy từ nóc (chân 7.59,
-  // mép trên khung hình chỉ tới ~7.5). Lerp mượt, tối đa +1.8; chạy dưới
+  // có là đầu nhân vật bay khỏi màn hình ở đỉnh nhảy từ nóc (chân 8.67,
+  // mép trên khung hình chỉ tới ~7.5). Lerp mượt, tối đa +3.0; chạy dưới
   // đất/nóc thì không nâng (giữ nguyên góc nhìn đã duyệt).
-  const liftTarget = Math.min(1.8, Math.max(0, playerH() - 2.5) * 0.45);
+  const liftTarget = Math.min(3.0, Math.max(0, playerH() - 2.5) * 0.5);
   camLift += (liftTarget - camLift) * Math.min(1, dt * 6);
   placeCamera();
 
@@ -1463,9 +1576,9 @@ function syncSprites(dt){
     const lean = 0.08 + norm * 0.14 + (wolfVisible() ? 0.05 : 0);
     charSprite.material.rotation = Math.sin(S.time * bobF) * 0.05 + lean;
   }
-  // đáp đất/nóc: squash nhẹ 0.22s cho cảm giác chạm đất; đang bay: giữ nguyên tỉ lệ (không stretch)
-  if (S.landT >= 0){ S.landT += dt; if (S.landT > 0.22) S.landT = -1; }
-  const sq = S.landT >= 0 ? 1 - 0.16 * (1 - S.landT / 0.22) : 1;
+  // đáp đất/nóc: squash 0.25s cho cảm giác chạm đất dứt khoát (đáp mạnh vì tốc độ rơi cao hơn); đang bay: giữ nguyên tỉ lệ (không stretch)
+  if (S.landT >= 0){ S.landT += dt; if (S.landT > 0.25) S.landT = -1; }
+  const sq = S.landT >= 0 ? 1 - 0.20 * (1 - S.landT / 0.25) : 1;
   charSprite.scale.y *= sq; charSprite.scale.x *= (2 - sq);
   charBlob.visible = true;
   charBlob.position.set(S.charX + 0.06, surfaceH + 0.02, 0.1);
@@ -1613,7 +1726,7 @@ function laneBlockedNow(lane){
   for (const e of S.entities){
     if (e.lane !== lane) continue;
     if (e.kind === 'train' && e.z > -2 && e.z - e.len < 2) return true;
-    if ((e.kind === 'low' || e.kind === 'over') && Math.abs(e.z) < 3) return true;
+    if ((e.kind === 'low' || e.kind === 'over' || e.kind === 'bike') && Math.abs(e.z) < 3) return true;
   }
   return false;
 }
@@ -1628,9 +1741,9 @@ function autotestBot(){
   const pl = passableLanes(row).filter(l => !laneBlockedNow(l));
   if (!pl.length) return;
   // thời điểm hành động tỉ lệ với tốc độ: nhảy/trượt sao cho đỉnh nhảy
-  // (0.56s) / giữa nhịp trượt rơi đúng lúc chướng ngại vật tới.
+  // (0.63s) / giữa nhịp trượt rơi đúng lúc chướng ngại vật tới.
   // nhảy rào thấp: cửa sổ dist ∈ (0.04, 1.08)×speed; nhảy lên nóc tàu:
-  // cửa sổ dist ∈ (0.35, 0.95)×speed (đỉnh 4.39, chân phải ≥3.16 khi mặt
+  // cửa sổ dist ∈ (0.35, 0.95)×speed (đỉnh 5.47, chân phải ≥3.16 khi mặt
   // sau tàu tới; đáp nóc liên tục nên nhảy sớm vẫn đáp được). Ngoài cửa
   // sổ → né sang làn trống thay vì nhảy muộn.
   const react = S.speed * 0.55;
@@ -1659,8 +1772,8 @@ function autotestBot(){
   // trên cao cùng làn thì sẽ kẹt giữa không trung (không trượt được khi
   // đang nhảy) → né sang làn trống thay vì nhảy; tương tự cho trượt
   const threatBehind = (kind) => S.entities.some(e => e.kind === kind && e.lane === S.lane && e.z < me.z - 3 && e.z > me.z - 30);
-  if (me.kind === 'low'){
-    if (threatBehind('over') && nearestFree !== null && stepToward(nearestFree)) return;
+  if (me.kind === 'low' || me.kind === 'bike'){
+    if ((threatBehind('over') || threatBehind('bike')) && nearestFree !== null && stepToward(nearestFree)) return;
     if (canJump && dist <= react && dist > react * 0.2){ doJump(); return; }
     if (dist < react && nearestFree !== null && stepToward(nearestFree)) return;
     if (canJump && dist <= react) doJump();
@@ -1689,8 +1802,8 @@ function autotestBot(){
     // giữa không trung làm mất lần cưỡi nóc — bot hồi quy cần tập cưỡi nóc;
     // né chỉ còn khi chân đã xuống dưới tầm nóc)
     if (S.jumpT >= 0 && S.y >= TRAIN_H - 0.05) return;
-    // nhảy lên nóc: đỉnh mới 4.39 + đáp nóc liên tục nên cửa sổ rộng
-    // dist ∈ (0.35, 0.95)×speed (trước đây (0.40, 0.73)×speed, đỉnh 3.49)
+    // nhảy lên nóc: đỉnh mới 5.47 + đáp nóc liên tục nên cửa sổ giữ nguyên
+    // dist ∈ (0.35, 0.95)×speed (trước đây đỉnh 4.39)
     if (canJump && dist <= S.speed * 0.95 && dist > S.speed * 0.35){ doJump(); return; }
     if (dist < react && nearestFree !== null && stepToward(nearestFree)) return;
     // KHÔNG nhảy muộn: nhảy khi tàu đã quá gần thì chân chưa đủ cao
@@ -1809,6 +1922,65 @@ function runMoveTests(){
       return { pass: S.mode === 'playing' || S.runTime > 30, mode: S.mode, runTime: +S.runTime.toFixed(1), score: S.score, roofRides: S.roofRideCount };
     });
   });
+  // T8: xe máy chạy ngược chiều (BIKE_V=9 cộng thêm vào tốc độ cuộn)
+  T('T8a bike spawns and approaches faster than world', () => {
+    moveTestReset();
+    const b = addBikeEnt(0, -40, 'red');
+    const z0 = b.z, sp0 = S.speed;
+    moveTestStep(30);
+    const dz = b.z - z0;
+    const hasLight = b.group.children.some(c => c.isPointLight);
+    const hasGlow = b.group.children.some(c => c.isSprite);
+    return { pass: S.entities.includes(b) && dz > sp0 * 0.5 + BIKE_V * 0.4 && b.group.userData.wheels.length === 2 && hasLight && hasGlow,
+      dz: +dz.toFixed(2), speed: sp0, wheels: b.group.userData.wheels.length, hasLight, hasGlow };
+  });
+  T('T8b bike dodge by lane change', () => {
+    moveTestReset();
+    const b = addBikeEnt(0, -30, 'blue');
+    moveRight();
+    let gone = false;
+    for (let i = 0; i < 300 && S.mode === 'playing'; i++){ update(1 / 60); if (!S.entities.includes(b)){ gone = true; break; } }
+    return { pass: gone && S.mode === 'playing', gone, mode: S.mode, z: +b.z.toFixed(1) };
+  });
+  T('T8c bike jump over', () => {
+    moveTestReset();
+    const b = addBikeEnt(0, -30, 'red');
+    let jumped = false;
+    for (let i = 0; i < 300 && S.mode === 'playing'; i++){
+      if (!jumped && -b.z <= S.speed * 0.5){ doJump(); jumped = true; }
+      update(1 / 60);
+      if (b.passed) break;
+    }
+    return { pass: jumped && b.passed === true && S.mode === 'playing', jumped, passed: b.passed, mode: S.mode };
+  });
+  T('T8d bike crash when standing still', () => {
+    moveTestReset();
+    const b = addBikeEnt(0, -30, 'red');
+    for (let i = 0; i < 300 && S.mode === 'playing'; i++) update(1 / 60);
+    return { pass: S.mode === 'over' && typeof S.lastHit === 'string' && S.lastHit.indexOf('bike') === 0, mode: S.mode, lastHit: S.lastHit };
+  });
+  T('T8e bike spawn rate and clear-lane rule', () => {
+    moveTestReset();
+    S.distance = 500;
+    let clean = 0;
+    for (let i = 0; i < 200; i++){
+      clearEntities();
+      S.prevRowTrains = 0; S.prevRowOverLanes = []; S.prevPassable = [-1, 0, 1];
+      spawnPattern();
+      if (S.entities.some(e => e.kind === 'bike')) clean++;
+    }
+    clearEntities();
+    addTrainEnt(-1, -50, 15, 'red', false);
+    addTrainEnt(0, -50, 15, 'blue', false);
+    addTrainEnt(1, -50, 15, 'orange', false);
+    let blocked = 0;
+    for (let i = 0; i < 50; i++){
+      S.prevRowTrains = 0; S.prevRowOverLanes = []; S.prevPassable = [-1, 0, 1];
+      spawnPattern();
+      if (S.entities.some(e => e.kind === 'bike')) blocked++;
+    }
+    return { pass: clean > 20 && clean < 70 && blocked === 0, cleanRate: clean + '/200', blockedRate: blocked + '/50' };
+  });
   const passed = out.filter(r => r.pass).length;
   const res = { total: out.length, passed, tests: out };
   const div = document.createElement('div');
@@ -1823,13 +1995,13 @@ if (P.get('movetest')) runMoveTests();
 window.__becaRun3d = {
   S, start: startGame, skipCutscene, over: gameOver,
   moveLeft, moveRight, jump: doJump, slide: doSlide,
-  spawnPattern, trainUnderPlayer, landOnTrain, addTrainEnt, addEnt, autotestBot,
+  spawnPattern, trainUnderPlayer, landOnTrain, addTrainEnt, addBikeEnt, addEnt, autotestBot,
   jumpHeight, jumpApex, isSliding, playerH, rampH,
   runFrame: runFrameIndex, wolfFrame: wolfFrameIndex,
   wolfVisible, wolfAlpha,
   obstDims, lanePassable, passableLanes,
   layout(){ return { LANE_X, CHAR_H, TRAIN_H, TRAIN_W, LOW_H, LOW_VIS_H, OVER_H, OVER_GAP,
-    COIN_R, SLIDE_H, JUMP_APEX: jumpApex(), SPEED_BASE, SPEED_MAX, SPAWN_Z, WOLF_H,
+    COIN_R, SLIDE_H, JUMP_APEX: jumpApex(), SPEED_BASE, SPEED_MAX, SPAWN_Z, WOLF_H, BIKE_V, BIKE_W, BIKE_H,
     WOLF_Z: WOLF_Z_CFG, CAM_Y, CAM_Z, LOOK_Y, LOOK_Z, FOV, MULT_CAP, RAMP_LEN, RAMP_TOP }; },
   assets(){ return Object.assign({}, texReady); },
   setSpeed(v){ S.speed = v; },
